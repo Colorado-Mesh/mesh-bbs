@@ -72,6 +72,7 @@ def test_installer_uses_isolated_python_and_does_not_run_setup_noninteractively(
     assert (temp / "uv.log").read_text().splitlines() == [
         "tool",
         "install",
+        "--managed-python",
         "--python",
         "3.12",
         "--reinstall",

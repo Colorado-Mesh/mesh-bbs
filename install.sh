@@ -98,7 +98,7 @@ main() {
     if [ -n "$mesh_bbs_extras" ]; then
         mesh_bbs_package="mesh-bbs[$mesh_bbs_extras]"
     fi
-    UV_TOOL_BIN_DIR="$mesh_bbs_bin" "$mesh_bbs_uv" tool install --python 3.12 --reinstall \
+    UV_TOOL_BIN_DIR="$mesh_bbs_bin" "$mesh_bbs_uv" tool install --managed-python --python 3.12 --reinstall \
         "$mesh_bbs_package @ https://github.com/Colorado-Mesh/mesh-bbs/archive/$mesh_bbs_ref.tar.gz"
     mesh_bbs_executable=$mesh_bbs_bin/mesh-bbs
     if [ ! -x "$mesh_bbs_executable" ]; then

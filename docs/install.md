@@ -34,8 +34,9 @@ download and inspect `install.sh` before running `sh install.sh --ref ...`.
 
 - Reuses `uv` if available. Otherwise downloads its official installer from
   `https://astral.sh/uv/install.sh`, with shell profile modification disabled.
-- Installs Mesh BBS into an isolated uv tool environment. uv obtains Python 3.12
-  if it is needed; system Python is not replaced.
+- Installs Mesh BBS into an isolated uv tool environment with a uv-managed
+  Python 3.12. uv obtains that interpreter if needed; system Python is not
+  replaced or used, and an Xcode license prompt cannot block installation.
 - Includes Reticulum, MeshCore, and Meshtastic adapter dependencies so enabling a
   connection later does not need another package install. To limit dependencies,
   use `--extras reticulum` (or a comma-separated list), or `--extras none` for
