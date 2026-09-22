@@ -205,7 +205,7 @@ async def test_shutdown_drains_inflight_newsletter_before_closing_database(
             return SimpleNamespace(status="not_modified")
 
     class OfflineWeb:
-        def __init__(self, *_args: Any) -> None:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
             pass
 
         def start(self) -> None:

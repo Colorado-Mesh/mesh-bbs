@@ -19,6 +19,7 @@ in [docs/plan.md](docs/plan.md).
 - NomadNet browsing and LXMF command access for Reticulum users.
 - MeshCore companion and Meshtastic direct-message interfaces with pagination.
 - Small, rate-limited radio responses; full newsletters are retrieved on request.
+- Automatic radio recovery while local reading and newsletter imports stay available.
 - A cleartext terminal interface for operator-managed packet-radio sessions.
 
 The service runs independently of Mesh Client. MeshCore Room Servers are not
@@ -107,8 +108,9 @@ uv run python -m hatchling build
 ```
 
 Core tests also run without optional radio libraries. The integration tests
-uses temporary Reticulum profiles and loopback interfaces in subprocesses. It
-never uses an installed profile or a real radio. See [architecture](docs/architecture.md)
+use temporary Reticulum profiles and real radio SDKs connected to loopback TCP
+protocol emulators. They never use an installed profile or a physical radio.
+See [architecture](docs/architecture.md)
 for trust, ordering, and protocol boundaries.
 
 ## License

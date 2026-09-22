@@ -92,7 +92,7 @@ jobs:
       - run: uv sync --locked --all-extras --group dev
       - name: Verify optional packages are installed
         run: uv run --no-sync python -c 'import RNS, LXMF, meshcore, meshtastic'
-      - name: Adapter contracts and real loopback protocol integration
+      - name: Adapter contracts, radio emulators, and Reticulum integration
         run: >-
           uv run --no-sync pytest -q
           tests/test_radio_adapters.py tests/test_reticulum_adapter.py tests/integration

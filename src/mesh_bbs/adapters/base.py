@@ -147,17 +147,20 @@ class QueuedRadioAdapter(ABC):
 
     async def _stop_worker(self) -> None:
         self._accepting = False
-        if self._worker is not None:
-            self._worker.cancel()
-            try:
-                await self._worker
-            except asyncio.CancelledError:
-                pass
-            self._worker = None
-        while not self._queue.empty():
-            message = self._queue.get_nowait()
-            self._queue.task_done()
-            self._release(message)
+        worker, self._worker = self._worker, None
+        try:
+            if worker is not None:
+                worker.cancel()
+                result = (await asyncio.gather(worker, return_exceptions=True))[0]
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    raise result
+        finally:
+            while not self._queue.empty():
+                message = self._queue.get_nowait()
+                self._queue.task_done()
+                self._release(message)
 
     async def drain(self) -> None:
         """Wait until every accepted in-memory request has been processed."""

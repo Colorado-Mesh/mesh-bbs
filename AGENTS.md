@@ -17,3 +17,7 @@
   code. Distinguish fake-radio tests, real local protocol tests, and RF tests.
 - Record material design decisions and reproducible operator commands in docs.
 - Run lint, typing, and relevant tests before committing; do not skip hooks.
+- Keep the SDK client until connection cleanup succeeds. Parent cancellation
+  must survive worker shutdown, and reconnects must reuse the airtime budget.
+- Run PTY/fork tests in a separate process: imported radio SDKs can leave
+  dispatcher threads alive even after individual connections have closed.

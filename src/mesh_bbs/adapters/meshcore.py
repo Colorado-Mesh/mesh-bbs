@@ -88,6 +88,11 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         self._client: Any = None
         self._subscription: Any = None
 
+    @property
+    def connected(self) -> bool:
+        client, worker = self._client, self._worker
+        return bool(client is not None and client.is_connected and worker and not worker.done())
+
     async def start(self) -> None:
         if self._client is not None:
             raise RuntimeError("adapter is already started")
@@ -145,13 +150,16 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             raise DeliveryError("MeshCore reply was not acknowledged")
 
     async def stop(self) -> None:
-        await self._stop_worker()
-        client, self._client = self._client, None
-        if client is not None:
-            try:
-                if self._subscription is not None:
-                    client.unsubscribe(self._subscription)
-                    self._subscription = None
-                await client.stop_auto_message_fetching()
-            finally:
-                await client.disconnect()
+        try:
+            await self._stop_worker()
+        finally:
+            client = self._client
+            if client is not None:
+                try:
+                    if self._subscription is not None:
+                        client.unsubscribe(self._subscription)
+                        self._subscription = None
+                    await client.stop_auto_message_fetching()
+                finally:
+                    await client.disconnect()
+                    self._client = None

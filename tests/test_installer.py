@@ -8,6 +8,7 @@ import select
 import shlex
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -226,6 +227,19 @@ def test_piped_installer_launches_setup_on_controlling_terminal(
     fake_install: tuple[dict[str, str], Path],
 ) -> None:
     env, temp = fake_install
+    # Protocol SDKs may leave dispatcher threads alive in the pytest process.
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__))],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (temp / "setup.log").read_text() == "setup ran"
+
+
+def _piped_install(env: dict[str, str]) -> None:
     child, terminal = pty.fork()
     if child == 0:
         # The installer itself is piped in, as in the documented one-liner.
@@ -255,4 +269,7 @@ def test_piped_installer_launches_setup_on_controlling_terminal(
             os.waitpid(child, 0)
         os.close(terminal)
     assert status == 0, output.decode(errors="replace")
-    assert (temp / "setup.log").read_text() == "setup ran"
+
+
+if __name__ == "__main__":
+    _piped_install(dict(os.environ))

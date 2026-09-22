@@ -91,6 +91,13 @@ class MeshtasticAdapter(QueuedRadioAdapter):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._portnum: Any = None
 
+    @property
+    def connected(self) -> bool:
+        client, worker = self._client, self._worker
+        return bool(
+            client is not None and client.isConnected.is_set() and worker and not worker.done()
+        )
+
     async def start(self) -> None:
         if self._client is not None:
             raise RuntimeError("adapter is already started")
@@ -201,11 +208,14 @@ class MeshtasticAdapter(QueuedRadioAdapter):
 
     async def stop(self) -> None:
         self._accepting = False
-        if self._pub is not None:
-            self._pub.unsubscribe(self._receive, "meshtastic.receive.text")
-            self._pub = None
-        await self._stop_worker()
-        client, self._client = self._client, None
-        self._loop = None
-        if client is not None:
-            await asyncio.to_thread(client.close)
+        try:
+            if self._pub is not None:
+                self._pub.unsubscribe(self._receive, "meshtastic.receive.text")
+                self._pub = None
+            await self._stop_worker()
+        finally:
+            self._loop = None
+            client = self._client
+            if client is not None:
+                await asyncio.to_thread(client.close)
+                self._client = None

@@ -24,6 +24,39 @@ requests. `/feeds/news.xml` exports the saved newsletter board as RSS. Set
 address. Binding to a LAN address exposes configured boards to that network;
 there is no web login or private-board UI in this first version.
 
+## Connection recovery and monitoring
+
+A missing or disconnected MeshCore or Meshtastic radio no longer stops local
+reading, newsletter polling, or the other configured transports. Each radio
+reconnects independently, closing the previous connection before creating a
+replacement. Retry waits grow from one second to at most one minute; a connection
+that stays up for 30 seconds resets the wait. Meshtastic's SDK can also recover
+some TCP interruptions within its existing connection instance.
+
+Reading cursors, publication receipts, and the persisted airtime budget remain
+in place across reconnects. An in-memory request awaiting a reply may be dropped
+when its radio disconnects. Retry it with the same operation ID or draft ID to
+recover the saved result. Reconnecting does not create a fresh airtime allowance.
+
+Use these endpoints for different monitoring decisions:
+
+```sh
+curl -fsS http://127.0.0.1:8080/healthz
+curl -sS http://127.0.0.1:8080/readyz
+```
+
+`/healthz` returns 200 while HTTP is available. `/readyz` returns 200 when all
+enabled radio adapters are online, or 503 while one is connecting, retrying,
+failed, or stopping. A host with no radio adapters enabled is ready. The JSON
+names each protocol and reports its state, connection attempts, reconnection
+count, and current retry wait. It contains no device paths, peer addresses, or
+message contents. This endpoint does not prove RF delivery or peer convergence.
+
+Use readiness failures to alert on radio access, rather than restarting an
+otherwise useful host continuously. `failed` means the operator must check the
+logs: missing dependencies, invalid adapter settings, or a cleanup failure need
+attention and a service restart. Device connection details remain in local logs.
+
 ## Linux user service
 
 Run one service per host configuration. From a downloaded source checkout:
@@ -84,8 +117,10 @@ host's federation destination. Reticulum's interface configuration decides what
 links carry traffic; enabling it may transmit announcements on those links.
 
 Local protocol tests use temporary profiles and loopback interfaces. The test
-suite includes fake-radio adapter tests; it is not evidence of successful RF
-operation. Validate delivery, airtime, retry behavior, and disconnect recovery
+suite includes actual SDK connections to MeshCore and Meshtastic TCP protocol
+emulators, including lost ACKs and reconnects. These emulators do not run radio
+firmware or establish successful RF operation. Validate delivery, airtime,
+retry behavior, and disconnect recovery
 with volunteer operators before inviting a community-wide load.
 
 ## Limit radio traffic
@@ -239,7 +274,8 @@ and an explicit trust update by peer operators.
 
 GitHub CI checks formatting and typing once, exercises the core and packaged CLI
 on Python 3.12/3.13/3.14 on Ubuntu and Python 3.12 on macOS, and runs optional
-adapter plus isolated Reticulum integration tests on Ubuntu. Dependencies come
+adapter, TCP protocol emulator, and isolated Reticulum integration tests on
+Ubuntu. Dependencies come
 from `uv.lock`; uv is pinned to 0.12.3, and actions are pinned to commits.
 Superseded branch runs are canceled. Distribution artifacts are test outputs,
 not automatic releases or deployments.

@@ -14,11 +14,14 @@ from mesh_bbs.airtime import AirtimeLimiter
 from mesh_bbs.cli import open_store
 from mesh_bbs.commands import CommandService
 from mesh_bbs.config import HostConfig
+from mesh_bbs.supervision import RadioSupervisor, radio_readiness
 
 logger = logging.getLogger(__name__)
 
 
 async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> None:
+    from mesh_bbs.adapters.meshcore import MeshCoreAdapter
+    from mesh_bbs.adapters.meshtastic import MeshtasticAdapter
     from mesh_bbs.federation import FederationService
     from mesh_bbs.newsletters import NewsletterImporter
     from mesh_bbs.views import Views
@@ -29,6 +32,7 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
     stop = stop or asyncio.Event()
     adapters: list[Any] = []
     limiters: list[AirtimeLimiter] = []
+    radios: dict[str, RadioSupervisor] = {}
     tasks: list[asyncio.Task[None]] = []
     workers: set[asyncio.Task[Any]] = set()
     web: ReadOnlyWebServer | None = None
@@ -58,12 +62,47 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
         )
 
     try:
+        for name, radio, adapter, port, options in (
+            ("meshcore", config.meshcore, MeshCoreAdapter, 4000, {}),
+            (
+                "meshtastic",
+                config.meshtastic,
+                MeshtasticAdapter,
+                4403,
+                {"firmware_max_attempts": config.meshtastic.firmware_max_attempts},
+            ),
+        ):
+            if not radio.enabled:
+                continue
+            budget = AirtimeLimiter(
+                config.data_dir / f"{name}-airtime.sqlite3",
+                f"{config.region}:{name}",
+                budget_seconds=radio.airtime_budget_seconds,
+                window_seconds=radio.airtime_window_seconds,
+                packet_airtime_seconds=radio.packet_airtime_seconds,
+            )
+            limiters.append(budget)
+            radios[name] = RadioSupervisor(
+                name,
+                partial(
+                    adapter,
+                    on_message,
+                    serial_port=radio.serial_port,
+                    tcp_host=radio.tcp_host,
+                    tcp_port=radio.tcp_port or port,
+                    min_interval=radio.min_interval,
+                    airtime_limiter=budget,
+                    **options,
+                ),
+            )
         public_host = config.bind_host if config.bind_host not in {"0.0.0.0", "::"} else "127.0.0.1"
         if ":" in public_host:
             public_host = f"[{public_host}]"
         base_url = config.public_url or f"http://{public_host}:{config.bind_port}"
         views = Views(store, config.name, base_url=base_url)
-        web = ReadOnlyWebServer(views, config.bind_host, config.bind_port)
+        web = ReadOnlyWebServer(
+            views, config.bind_host, config.bind_port, readiness=partial(radio_readiness, radios)
+        )
         web.start()
         peer_boards = {
             p.reticulum_identity: frozenset(p.allowed_boards)
@@ -102,49 +141,7 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
                     await asyncio.sleep(60)
 
             tasks.append(asyncio.create_task(sync_loop()))
-        if config.meshcore.enabled:
-            from mesh_bbs.adapters.meshcore import MeshCoreAdapter
-
-            meshcore_budget = AirtimeLimiter(
-                config.data_dir / "meshcore-airtime.sqlite3",
-                f"{config.region}:meshcore",
-                budget_seconds=config.meshcore.airtime_budget_seconds,
-                window_seconds=config.meshcore.airtime_window_seconds,
-                packet_airtime_seconds=config.meshcore.packet_airtime_seconds,
-            )
-            limiters.append(meshcore_budget)
-            meshcore = MeshCoreAdapter(
-                on_message,
-                serial_port=config.meshcore.serial_port,
-                tcp_host=config.meshcore.tcp_host,
-                tcp_port=config.meshcore.tcp_port or 4000,
-                min_interval=config.meshcore.min_interval,
-                airtime_limiter=meshcore_budget,
-            )
-            await meshcore.start()
-            adapters.append(meshcore)
-        if config.meshtastic.enabled:
-            from mesh_bbs.adapters.meshtastic import MeshtasticAdapter
-
-            meshtastic_budget = AirtimeLimiter(
-                config.data_dir / "meshtastic-airtime.sqlite3",
-                f"{config.region}:meshtastic",
-                budget_seconds=config.meshtastic.airtime_budget_seconds,
-                window_seconds=config.meshtastic.airtime_window_seconds,
-                packet_airtime_seconds=config.meshtastic.packet_airtime_seconds,
-            )
-            limiters.append(meshtastic_budget)
-            meshtastic = MeshtasticAdapter(
-                on_message,
-                serial_port=config.meshtastic.serial_port,
-                tcp_host=config.meshtastic.tcp_host,
-                tcp_port=config.meshtastic.tcp_port or 4403,
-                min_interval=config.meshtastic.min_interval,
-                firmware_max_attempts=config.meshtastic.firmware_max_attempts,
-                airtime_limiter=meshtastic_budget,
-            )
-            await meshtastic.start()
-            adapters.append(meshtastic)
+        tasks.extend(asyncio.create_task(supervisor.run()) for supervisor in radios.values())
         importers = [NewsletterImporter(store, feed) for feed in config.feeds]
 
         async def feeds_loop() -> None:

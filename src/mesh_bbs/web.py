@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import socket
 import threading
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -79,7 +81,10 @@ class _Server(ThreadingHTTPServer):
             self._slots.release()
 
 
-def _handler(views: Views) -> type[BaseHTTPRequestHandler]:
+Readiness = Callable[[], tuple[bool, dict[str, Any]]]
+
+
+def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "MeshBBS"
         sys_version = ""
@@ -153,6 +158,11 @@ def _handler(views: Views) -> type[BaseHTTPRequestHandler]:
                 if path == "/healthz":
                     self._send(200, "application/json; charset=utf-8", b'{"status":"ok"}\n')
                     return
+                if path == "/readyz":
+                    ready, report = readiness() if readiness else (True, {"status": "ready"})
+                    body = (json.dumps(report, sort_keys=True) + "\n").encode("utf-8")
+                    self._send(200 if ready else 503, "application/json; charset=utf-8", body)
+                    return
                 content_type = "text/html; charset=utf-8"
                 parts = path.split("/")
                 if path == "/":
@@ -209,12 +219,20 @@ class ReadOnlyWebServer:
     when running alongside asynchronous adapters.
     """
 
-    def __init__(self, views: Views, host: str = "127.0.0.1", port: int = 8080) -> None:
+    def __init__(
+        self,
+        views: Views,
+        host: str = "127.0.0.1",
+        port: int = 8080,
+        *,
+        readiness: Readiness | None = None,
+    ) -> None:
         if not isinstance(host, str) or not host or len(host) > 255:
             raise ValueError("A valid bind address is required")
         if type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("Port must be between 0 and 65535")
         self.views, self.host, self.port = views, host, port
+        self._readiness = readiness
         self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
@@ -228,7 +246,7 @@ class ReadOnlyWebServer:
     def start(self) -> None:
         if self._server is not None:
             raise RuntimeError("HTTP service is already running")
-        server = _Server((self.host, self.port), _handler(self.views))
+        server = _Server((self.host, self.port), _handler(self.views, self._readiness))
         thread = threading.Thread(
             target=server.serve_forever,
             kwargs={"poll_interval": 0.1},
