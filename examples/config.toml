@@ -1,0 +1,64 @@
+# Copy this file and edit it before initializing your host.
+# Community IDs must match on hosts that exchange this community's boards.
+name = "Colorado Mesh / my-host"
+region = "colorado-mesh"
+data_dir = "~/.local/share/mesh-bbs/colorado-mesh"
+boards = ["general", "news"]
+# MeshCore public keys or authenticated Reticulum LXMF destinations may be added.
+# Meshtastic node numbers are not sufficient to authorize official editors.
+editors = ["local:operator"]
+bind_host = "127.0.0.1"
+bind_port = 8080
+# For public RSS links, set the actual HTTP(S) origin readers use.
+# public_url = "https://bbs.example.org"
+
+[reticulum]
+enabled = false
+# Set a dedicated Reticulum config directory before enabling; it controls interfaces.
+# config_dir = "~/.config/mesh-bbs/colorado-mesh/reticulum"
+
+[meshcore]
+enabled = false
+min_interval = 3.0
+# Bound estimated reply TX time, including all configured retries, per rolling window.
+# Calibrate packet_airtime_seconds for your modem/payload before community use.
+airtime_budget_seconds = 120.0
+airtime_window_seconds = 3600.0
+packet_airtime_seconds = 10.0
+# Use a companion radio. Choose serial or TCP, not both.
+# serial_port = "/dev/ttyUSB0"
+# tcp_host = "192.0.2.10"
+# tcp_port = 5000
+
+[meshtastic]
+enabled = false
+min_interval = 3.0
+airtime_budget_seconds = 120.0
+airtime_window_seconds = 3600.0
+packet_airtime_seconds = 10.0
+# Total possible firmware transmissions for each response, not additional retries.
+firmware_max_attempts = 4
+# serial_port = "/dev/ttyUSB1"
+# tcp_host = "192.0.2.11"
+# tcp_port = 4403
+
+# Colorado Mesh preset: blog announcements and newsletter introductions.
+# Linked newsletter PDFs are not imported as full article text.
+# For another community, replace this with its own feed or remove the entry.
+# Keep source_id identical on all hosts importing the same source.
+[[feeds]]
+source_id = "colorado-mesh-blog"
+url = "https://blog.coloradomesh.org/feed.xml"
+board = "news"
+poll_seconds = 900
+
+# Exchange actual public keys and Reticulum addresses with a peer operator.
+# origin is SHA-256(raw Ed25519 public_key), encoded as 64 lowercase hex digits.
+# public_key is the raw 32-byte Ed25519 public key encoded as 64 hex digits.
+# RNS identity hashes are 32 hex digits. The sync destination is derived from them.
+# [[peers]]
+# origin = "REPLACE_WITH_PEER_ORIGIN"
+# public_key = "REPLACE_WITH_PEER_PUBLIC_KEY"
+# allowed_boards = ["general", "news"]
+# reticulum_identity = "REPLACE_WITH_PEER_RNS_IDENTITY_HASH"
+# can_moderate = false

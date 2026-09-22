@@ -1,0 +1,249 @@
+# Run a community host
+
+Start with [installation and community setup](install.md). The commands below
+assume the Colorado Mesh default paths and an executable on your PATH. Substitute
+your region's config path, or use `--region YOUR-REGION` after saving its config.
+Use `~/.local/bin/mesh-bbs` when the installer directory is not on your PATH.
+
+```sh
+mesh-bbs --region colorado-mesh init
+mesh-bbs --region colorado-mesh doctor
+mesh-bbs --region colorado-mesh command 'boards'
+mesh-bbs --region colorado-mesh serve
+```
+
+`init` prints the host's public signing identity. `doctor` checks the local
+database and that enabled adapter libraries are installed; it does not prove
+that radios, peers, or a newsletter source are reachable. `serve` starts the
+read-only web reader, configured feed polling, and explicitly enabled transports.
+Press Ctrl-C to stop a foreground host.
+
+The default web reader is at `http://127.0.0.1:8080`; it does not accept posting
+requests. `/feeds/news.xml` exports the saved newsletter board as RSS. Set
+`public_url` to the actual external origin if readers connect through another
+address. Binding to a LAN address exposes configured boards to that network;
+there is no web login or private-board UI in this first version.
+
+## Linux user service
+
+Run one service per host configuration. From a downloaded source checkout:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp examples/mesh-bbs.service ~/.config/systemd/user/mesh-bbs.service
+```
+
+Open that file and check `ExecStart`: it must point to your installed executable
+and the intended region's configuration. Adjust it for `UV_TOOL_BIN_DIR`, XDG
+paths, or another region. For another simultaneous instance, use a distinct unit
+name, data directory, and web port.
+
+After checking the config and testing `serve` in the foreground:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now mesh-bbs.service
+systemctl --user status mesh-bbs.service
+journalctl --user -u mesh-bbs.service -f
+```
+
+The example restarts failed processes after ten seconds. It does not restart
+after a deliberate `systemctl --user stop mesh-bbs.service`. Configuration edits
+take effect after `systemctl --user restart mesh-bbs.service`.
+
+User services normally follow the user's login session. An administrator can
+enable lingering for the service account when the host must run while logged
+out. Follow your distribution's `loginctl enable-linger` policy; the installer
+does not change it. On macOS, run in the foreground for a pilot or configure an
+operator-managed launchd service; the systemd unit is Linux-only.
+
+## Connect protocols deliberately
+
+| Access | Equipment or software | Operator setup |
+| --- | --- | --- |
+| Reticulum | Reticulum installation and its configured interfaces | Dedicated `reticulum.config_dir`, then `enabled = true` |
+| MeshCore | Radio with stock companion firmware | Explicit serial device or TCP address; no Room Server |
+| Meshtastic | Radio with stock Meshtastic firmware | Explicit serial device or TCP address |
+| Web/RSS | Any browser or RSS reader reaching the host | Loopback by default; choose a listener and external URL if needed |
+
+No custom radio firmware is required by the adapters. Use a firmware/library
+combination you have checked in a local pilot. Close other programs that own the
+same serial device. Grant the service account serial access using the operating
+system's device permissions; do not solve permission errors by running the
+whole BBS as root.
+
+MeshCore and Meshtastic users send the BBS node a direct message such as `help`,
+`boards`, or `news latest`. `more` retrieves the next bounded page. Broadcast
+channel messages are not a command interface. A `#meshbbs` discovery channel can
+be agreed between local operators, but this version does not automatically
+announce newsletters or coordinate regional channel notices.
+
+Reticulum users browse the announced NomadNet destination or send commands to
+the LXMF destination printed in the service logs. These are separate from the
+host's federation destination. Reticulum's interface configuration decides what
+links carry traffic; enabling it may transmit announcements on those links.
+
+Local protocol tests use temporary profiles and loopback interfaces. The test
+suite includes fake-radio adapter tests; it is not evidence of successful RF
+operation. Validate delivery, airtime, retry behavior, and disconnect recovery
+with volunteer operators before inviting a community-wide load.
+
+## Limit radio traffic
+
+Each radio has a persisted rolling budget for estimated reply transmission time.
+The example reserves 10 seconds per possible packet transmission, including
+every retry, with 120 seconds available per hour. These deliberately cautious
+defaults permit six MeshCore responses or three Meshtastic responses per hour
+when their entire retry allowances are reserved. Set `packet_airtime_seconds`
+to an upper bound measured for your firmware, modem settings, maximum reply
+length, and protocol overhead; a smaller verified value makes more replies
+available within the same budget. Changing spreading factor, bandwidth, coding
+rate, path format, or firmware retry behavior requires checking that bound again.
+
+The scheduler reserves capacity before it executes a request. Once the budget
+is used, queued requests wait instead of advancing reading cursors or publishing
+posts that cannot yet receive a reply. It does not refund unused retries. The
+reservation remains charged for a full window after processing finishes; an
+unfinished reservation receives a fresh cooldown after restart. Deleting the
+airtime database discards this history, so keep it with the host's data.
+
+These limits cover BBS response transmissions made through the adapters. They
+do not measure or limit radio advertisements, protocol ACKs, other applications,
+or repeater forwarding, and they are not proof of regulatory duty-cycle
+compliance. Operators must account for that additional traffic separately.
+`min_interval` also spaces responses. Queue capacity and per-sender admission
+limits reject excess requests without sending more congestion traffic.
+
+## Start a trusted federation
+
+Agree on the same region ID and board slugs before initializing each host.
+Each operator creates a separate host identity and keeps their own private key.
+Exchange the values printed by `init`: `origin` and `public_key`. When Reticulum
+is enabled, also exchange its identity hash from the logs. The adapter derives
+the sync destination from that identity; it is not a separate configuration value.
+Verify these values through a channel you trust.
+
+Add an explicit `[[peers]]` entry for each permitted origin, with the public key,
+Reticulum identity, and a list of `allowed_boards`. An empty list grants no board
+access. `can_moderate = true` is a separate privilege: do not grant it just to
+enable synchronization. Restart after changing peer configuration.
+
+In the first pilot, explicitly configure every host in the small trusted group.
+There is no automatic peer directory, membership approval service, or configured
+Colorado Mesh bootstrap server. Selecting a region name does not establish
+trust. Local writes remain available during a partition; a "Saved locally"
+confirmation does not mean another host already has the post.
+
+Test with three hosts: publish on each while disconnected, reconnect them, and
+check thread IDs, replies, newsletter corrections, and removals after repeated
+sync. A missing parent must stay a missing parent instead of attaching a reply
+to an unrelated post. Preserve removal records when copying or recovering data;
+deleting their history can make old content appear again.
+
+## Publish newsletters
+
+The Colorado Mesh setup preset imports its
+[blog feed](https://blog.coloradomesh.org/feed.xml) with source ID
+`colorado-mesh-blog`. It currently supplies blog announcements and newsletter
+introductions, rather than extracting full text from linked newsletter PDFs.
+For another existing newsletter, add its actual RSS/Atom URL and a stable `source_id`
+to the config. Every importer for that source must use the same ID and board.
+The importer retains item IDs across retries and revisions. Summary-only feed
+items remain summaries; the service does not promise full text missing from the
+source. Choose a full-content feed when offline reading needs the whole issue.
+
+Check a configured source once with:
+
+```sh
+mesh-bbs --region colorado-mesh import-feeds
+mesh-bbs --region colorado-mesh command 'news latest'
+```
+
+`serve` handles subsequent scheduled polling. Feed failures back off and appear
+in logs. Do not give unrelated sources the same `source_id`, and do not change
+the ID merely because the publisher changed its URL.
+
+To publish a local UTF-8 text file as an issue:
+
+```sh
+mesh-bbs --region colorado-mesh post news 'September newsletter' --body-file september.txt --operation colorado-news-2026-09
+```
+
+Reuse the operation ID if retrying this same publication after losing its
+confirmation. Use a different ID for a genuinely new issue. Identical text alone
+does not establish that two submissions were the same operation. Radio authors
+are identified by their transport's address, not their nickname. Only configured
+editors may start newsletter issues through the command interface; other users
+can reply to an issue.
+
+The local operator can correct their own manually published issue or remove a
+post:
+
+```sh
+mesh-bbs edit POST_ID --body-file corrected.txt --operation correction-1
+mesh-bbs remove POST_ID --operation removal-1
+```
+
+Reusing either operation ID is safe. Removal of a post originally accepted by
+this host follows that host's authorship authority. Removing another host's
+post applies locally; other hosts only apply that removal when they grant this
+host moderation authority for the board. Removal stops public serving but does
+not erase historical events, backups, or readers' existing copies.
+
+Editor entries use exact transport identities: `meshcore:` followed by the full
+public key, or `reticulum:` followed by the authenticated sender's LXMF
+destination hash. Verify an editor's identity before granting access. Meshtastic
+node addresses are not sufficient authentication for official newsletter
+publishing, so they cannot be configured as editors. Meshtastic users can still
+read issues and reply through the normal BBS commands.
+
+## Back up and recover
+
+The database contains the host's private signing key as well as posts, removal
+history, drafts, and deduplication state. Keep backups private. Do not attach a
+database to a public issue or copy one into CI artifacts.
+
+For a consistent SQLite snapshot while the host is running:
+
+```sh
+mkdir -p ~/mesh-bbs-backups
+chmod 700 ~/mesh-bbs-backups
+mesh-bbs --region colorado-mesh backup ~/mesh-bbs-backups/colorado-2026-09-22.sqlite3
+```
+
+Choose a new destination each time; the command refuses to overwrite an existing
+backup. This snapshots the database, including its signing key. It does not copy
+the TOML config, Reticulum interface config, or the separate Reticulum identity
+and delivery state in the data directory.
+
+For a complete host backup, stop the service and archive the config directory,
+the whole data directory, and the configured Reticulum directory if it lives
+elsewhere. Copying a live SQLite file by itself can miss WAL changes; use the
+backup command or make the full copy with the service stopped. Store a copy on
+another device and periodically practice recovery into a separate temporary
+directory with all radio transports disabled.
+
+To recover, stop the existing host and preserve its current files. Restore the
+matching config, database, and transport state into the intended data directory,
+keep the same region, check filesystem permissions, and run `doctor` before
+starting the service. Retain tombstones and event history. After connecting,
+verify newer peer events have arrived. Never run a backup clone alongside the
+original with the same identity; initialize a fresh host when adding capacity.
+
+Treat logs as operator data: they can include addresses, post identifiers, and
+transport errors. Redact feed subscription secrets, private keys, and message
+content before sharing diagnostics. A lost signing identity needs a fresh host
+and an explicit trust update by peer operators.
+
+## CI coverage
+
+GitHub CI checks formatting and typing once, exercises the core and packaged CLI
+on Python 3.12/3.13/3.14 on Ubuntu and Python 3.12 on macOS, and runs optional
+adapter plus isolated Reticulum integration tests on Ubuntu. Dependencies come
+from `uv.lock`; uv is pinned to 0.12.3, and actions are pinned to commits.
+Superseded branch runs are canceled. Distribution artifacts are test outputs,
+not automatic releases or deployments.
+
+Maintainer references: [uv GitHub integration](https://docs.astral.sh/uv/guides/integration/github/),
+[setup-uv](https://github.com/astral-sh/setup-uv), and
+[Dependabot configuration](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).

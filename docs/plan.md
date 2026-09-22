@@ -25,44 +25,44 @@ posts without duplicate issues or replies pointing at unrelated messages.
 
 ### 1. Repository and durable core
 
-- [ ] Reproducible Python environment, lint, typing, tests, package build, CI.
-- [ ] Boards, posts, stable parent references, revisions, tombstones.
-- [ ] Atomic acceptance and deduplication survive concurrent retries and restart.
-- [ ] Persistent drafts and byte-bounded reading cursors.
-- [ ] A CLI can initialize a host and demonstrate reading and publishing.
+- [x] Reproducible Python environment, lint, typing, tests, package build, CI.
+- [x] Boards, posts, stable parent references, revisions, tombstones.
+- [x] Atomic acceptance and deduplication survive concurrent retries and restart.
+- [x] Persistent drafts and byte-bounded reading cursors.
+- [x] A CLI can initialize a host and demonstrate reading and publishing.
 
 ### 2. Newsletters
 
-- [ ] RSS and Atom parse from bounded input with safe text conversion.
-- [ ] Repeated imports create one issue; corrections retain its identity.
-- [ ] Summary-only feeds are labeled; no promise of unavailable full text.
-- [ ] Configured feed polling supports conditional requests and failure backoff.
-- [ ] Web browsing and RSS export expose the same saved public posts.
-- [ ] Official newsletter posting permissions differ from community replies.
+- [x] RSS and Atom parse from bounded input with safe text conversion.
+- [x] Repeated imports create one issue; corrections retain its identity.
+- [x] Summary-only feeds are labeled; no promise of unavailable full text.
+- [x] Configured feed polling supports conditional requests and failure backoff.
+- [x] Web browsing and RSS export expose the same saved public posts.
+- [x] Official newsletter posting permissions differ from community replies.
 
 ### 3. Federation and Reticulum access
 
-- [ ] Trusted-peer inventory and missing-event transfer with signatures and limits.
-- [ ] Three disconnected hosts converge after reordered/repeated exchanges.
-- [ ] Missing parents and removal-before-create do not corrupt thread identity.
-- [ ] NomadNet browsing and LXMF commands use the shared content and permissions.
-- [ ] Real local Reticulum integration runs with isolated temporary profiles.
+- [x] Trusted-peer inventory and missing-event transfer with signatures and limits.
+- [x] Three disconnected hosts converge after reordered/repeated exchanges.
+- [x] Missing parents and removal-before-create do not corrupt thread identity.
+- [x] NomadNet browsing and LXMF commands use the shared content and permissions.
+- [x] Real local Reticulum integration runs with isolated temporary profiles.
 
 ### 4. Radio adapters and operations
 
-- [ ] MeshCore companion DM adapter; no Room Server dependency.
-- [ ] Meshtastic DM adapter; ignore channel broadcasts by default.
-- [ ] Receive parsing, identity handling, payload limits, and retry behavior tested.
-- [ ] Bounded transmission queues and conservative scheduling.
-- [ ] Example configuration, service installation, backup and restore, health checks.
-- [ ] Protocol plugin documentation and a cleartext packet gateway interface.
+- [x] MeshCore companion DM adapter; no Room Server dependency.
+- [x] Meshtastic DM adapter; ignore channel broadcasts by default.
+- [x] Receive parsing, identity handling, payload limits, and retry behavior tested.
+- [x] Bounded transmission queues and conservative scheduling.
+- [x] Example configuration, service installation, backup and restore, health checks.
+- [x] Protocol plugin documentation and a cleartext packet gateway interface.
 
 ### 5. Pilot readiness
 
-- [ ] Installation smoke test from the built package.
-- [ ] Security and architecture review findings addressed.
+- [x] Installation smoke test from the built package.
+- [x] Security and architecture review findings addressed.
 - [ ] Current-commit GitHub CI passes.
-- [ ] Known limits, hardware pilot instructions, and remaining work documented.
+- [x] Known limits, hardware pilot instructions, and remaining work documented.
 
 Actual MeshCore/Meshtastic RF coverage, traffic behavior under a busy community
 mesh, and licensed ham station operation require an operator-run field pilot.
@@ -79,3 +79,21 @@ Local tests must never be described as field validation.
 - https://www.rssboard.org/rss-specification
 - https://www.rfc-editor.org/rfc/rfc4287
 - https://docs.python.org/3/library/sqlite3.html
+
+## Validation evidence
+
+The tests exercise concurrent publication retries, process restart, out-of-order
+replication, removal and revision permissions, byte-limited reading, feed polling,
+terminal board policy, and persistent reply budgets. Wheel tests install outside
+the source tree and exercise initialization, newsletter publication, reading,
+and backup.
+
+The full Reticulum integration starts three independent hosts with temporary
+identities and real loopback links. It checks independently created posts,
+64 KiB UTF-8 content, stable reply parents, duplicate newsletter import,
+interrupted synchronization, signed LXMF commands and retries, restart, and
+NomadNet views. Radio adapters use simulated devices; no RF testing is claimed.
+
+Independent code review covered transaction boundaries, identity and board
+permissions, parsing, shutdown, and bounded work. Its findings have regression
+tests. Repository CI results are available in the Actions tab.

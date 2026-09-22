@@ -1,0 +1,78 @@
+"""Interactive setup for a local, radio-disabled community host."""
+
+from __future__ import annotations
+
+import re
+import shlex
+import socket
+from pathlib import Path
+
+from mesh_bbs.config import (
+    FeedConfig,
+    HostConfig,
+    default_config_path,
+    default_data_dir,
+    save_config,
+    validate_slug,
+)
+
+
+def _ask(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    try:
+        return input(f"{prompt}{suffix}: ").strip() or default
+    except EOFError as error:
+        raise ValueError(
+            "setup needs an interactive terminal; run mesh-bbs setup in a terminal"
+        ) from error
+
+
+def run_setup(config_path: Path | None = None) -> Path:
+    print("Mesh BBS setup")
+    print("1. Colorado Mesh")
+    print("2. Another mesh or region")
+    while (choice := _ask("Choose a community", "1")) not in {"1", "2"}:
+        print("Enter 1 or 2.")
+    if choice == "1":
+        region, community = "colorado-mesh", "Colorado Mesh"
+    else:
+        community = _ask("Community name")
+        while not community:
+            community = _ask("Enter a community name")
+        suggested = re.sub(r"[^a-z0-9]+", "-", community.lower()).strip("-")[:64].rstrip("-")
+        while True:
+            region = _ask("Stable region ID (use the same ID as your peers)", suggested)
+            try:
+                validate_slug(region)
+                break
+            except ValueError as error:
+                print(error)
+    target = (config_path or default_config_path(region)).expanduser().absolute()
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(
+            f"configuration already exists: {target}; edit it or choose another path"
+        )
+    host_name = _ask("Name for this host", f"{community} / {socket.gethostname()}")
+    data_dir = default_data_dir(region)
+    feeds = (
+        (FeedConfig("colorado-mesh-blog", "https://blog.coloradomesh.org/feed.xml"),)
+        if choice == "1"
+        else ()
+    )
+    config = HostConfig(name=host_name, region=region, data_dir=data_dir, feeds=feeds)
+    save_config(config, target)
+    print(f"Saved configuration: {target}")
+    print(f"Local data: {data_dir}")
+    print("The region becomes fixed when this host's database is initialized.")
+    print("No public peers are configured. Radio connections are disabled.")
+    if feeds:
+        print("Colorado Mesh blog import is configured: https://blog.coloradomesh.org/feed.xml")
+        print("This imports announcements and newsletter introductions when the service runs.")
+        print("Linked newsletter PDFs are not imported as full article text.")
+    else:
+        print("Add your community's RSS/Atom source to the config to import newsletters.")
+    quoted = shlex.quote(str(target))
+    print(f"Next: mesh-bbs --config {quoted} init")
+    print(f"Then: mesh-bbs --config {quoted} serve")
+    print(f"Local web address: http://{config.bind_host}:{config.bind_port}")
+    return target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Mesh BBS community host
+
+[Service]
+Type=exec
+# Adjust both paths for a custom installation or region.
+ExecStart="%h/.local/bin/mesh-bbs" --config "%h/.config/mesh-bbs/colorado-mesh/config.toml" serve
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=yes
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

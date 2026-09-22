@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mesh-bbs"
+version = "0.1.0a1"
+description = "Distributed community bulletin boards across constrained networks"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dependencies = [
+  "cryptography>=46,<49",
+  "feedparser>=6.0.12,<7",
+  "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+reticulum = ["rns==1.5.4", "lxmf==1.1.1"]
+meshcore = ["meshcore==2.3.14"]
+meshtastic = ["meshtastic==2.7.11"]
+
+[project.scripts]
+mesh-bbs = "mesh_bbs.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8", "ruff>=0.12,<1", "mypy>=1.16,<2", "hatchling>=1.27,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["integration: isolated local protocol integration"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+files = ["src/mesh_bbs"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mesh_bbs"]
