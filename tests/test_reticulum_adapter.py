@@ -7,6 +7,7 @@ import stat
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -57,8 +58,8 @@ def test_identity_is_private_when_created(
     real_open = os.open
     created_modes = []
 
-    def observe_open(file: Path, flags: int, mode: int = 0o777) -> int:
-        descriptor = real_open(file, flags, mode)
+    def observe_open(file: Path, flags: int, *args: Any, **kwargs: Any) -> int:
+        descriptor = real_open(file, flags, *args, **kwargs)
         if file == path and flags & os.O_CREAT:
             created_modes.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
         return descriptor
@@ -145,11 +146,11 @@ def test_identity_rejects_symlink_substituted_after_lstat(
     target.chmod(0o644)
     real_open = os.open
 
-    def swap_before_open(file: Path, flags: int, mode: int = 0o777) -> int:
+    def swap_before_open(file: Path, flags: int, *args: Any, **kwargs: Any) -> int:
         if file == path and not flags & os.O_CREAT:
             path.unlink()
             path.symlink_to(target)
-        return real_open(file, flags, mode)
+        return real_open(file, flags, *args, **kwargs)
 
     monkeypatch.setattr(os, "open", swap_before_open)
     with pytest.raises(OSError) as failure:
@@ -168,11 +169,11 @@ def test_identity_rejects_fifo_substituted_after_lstat(
     path.write_bytes(b"original")
     real_open = os.open
 
-    def swap_before_open(file: Path, flags: int, mode: int = 0o777) -> int:
+    def swap_before_open(file: Path, flags: int, *args: Any, **kwargs: Any) -> int:
         if file == path and not flags & os.O_CREAT:
             path.unlink()
             os.mkfifo(path)
-        return real_open(file, flags, mode)
+        return real_open(file, flags, *args, **kwargs)
 
     monkeypatch.setattr(os, "open", swap_before_open)
     with pytest.raises(ValueError, match="must be a regular file"):

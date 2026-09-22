@@ -61,7 +61,7 @@ posts without duplicate issues or replies pointing at unrelated messages.
 
 - [x] Installation smoke test from the built package.
 - [x] Security and architecture review findings addressed.
-- [ ] Current-commit GitHub CI passes.
+- [x] Current-commit GitHub CI passes.
 - [x] Known limits, hardware pilot instructions, and remaining work documented.
 
 Actual MeshCore/Meshtastic RF coverage, traffic behavior under a busy community
@@ -97,3 +97,11 @@ NomadNet views. Radio adapters use simulated devices; no RF testing is claimed.
 Independent code review covered transaction boundaries, identity and board
 permissions, parsing, shutdown, and bounded work. Its findings have regression
 tests. Repository CI results are available in the Actions tab.
+
+The initial complete suite passed 517 tests locally. All six CI jobs passed on
+Linux and macOS, including the packaged CLI on Python 3.12, 3.13, and 3.14.
+The public installer was also tested in a temporary environment: all protocol
+dependencies installed, both community choices initialized correctly, and the
+installed service published and read a newsletter, served RSS, backed up its
+database, and shut down cleanly. These checks did not operate any radio or
+change an installed application profile.
