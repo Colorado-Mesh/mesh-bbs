@@ -539,12 +539,15 @@ class Store:
             ).fetchone()[0]
             if count >= 10:
                 raise BBSError("Finish or discard a draft before creating another (limit 10)")
-            draft_id = secrets.token_hex(4)
-            self.db.execute(
-                "INSERT INTO drafts VALUES (?,?,?,?,?,NULL)",
-                (draft_id, actor, board, title, parent_id),
-            )
-            return draft_id
+            for _ in range(8):
+                draft_id = secrets.token_hex(4)
+                inserted = self.db.execute(
+                    "INSERT INTO drafts VALUES (?,?,?,?,?,NULL) ON CONFLICT(draft_id) DO NOTHING",
+                    (draft_id, actor, board, title, parent_id),
+                ).rowcount
+                if inserted:
+                    return draft_id
+            raise BBSError("Could not allocate a draft ID; retry the command")
 
     def draft(self, actor: str, draft_id: str) -> tuple[sqlite3.Row, str]:
         with self._lock:

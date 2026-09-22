@@ -484,6 +484,46 @@ def test_active_draft_limit_is_per_actor_and_publish_releases_slot(
     assert store.new_draft(ALICE, "general", "Next post")
 
 
+@pytest.mark.parametrize("published", [False, True])
+def test_draft_id_collision_retries_without_changing_existing_draft(
+    hosts: tuple[Store, Store, Store], monkeypatch: pytest.MonkeyPatch, published: bool
+) -> None:
+    store, _, _ = hosts
+    existing = store.new_draft(ALICE, "general", "Existing draft")
+    store.add_part(ALICE, existing, 1, "Preserve this text")
+    if published:
+        store.publish_draft(ALICE, existing)
+    original, body = store.draft(ALICE, existing)
+    replacement = "12345678" if existing != "12345678" else "87654321"
+    candidates = iter((existing, replacement))
+    monkeypatch.setattr("mesh_bbs.store.secrets.token_hex", lambda _: next(candidates))
+
+    assert store.new_draft("meshcore:bob", "general", "New draft") == replacement
+
+    retained, retained_body = store.draft(ALICE, existing)
+    assert dict(retained) == dict(original)
+    assert retained_body == body
+    assert store.draft("meshcore:bob", replacement)[0]["title"] == "New draft"
+
+
+def test_repeated_draft_id_collisions_fail_without_unbounded_retry(
+    hosts: tuple[Store, Store, Store], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _, _ = hosts
+    existing = store.new_draft(ALICE, "general", "Existing draft")
+    attempts = []
+
+    def collide(size: int) -> str:
+        attempts.append(size)
+        return existing
+
+    monkeypatch.setattr("mesh_bbs.store.secrets.token_hex", collide)
+    with pytest.raises(BBSError, match="retry the command"):
+        store.new_draft("meshcore:bob", "general", "New draft")
+    assert attempts == [4] * 8
+    assert store.db.execute("SELECT count(*) FROM drafts").fetchone()[0] == 1
+
+
 def test_inventory_and_export_respect_board_grants(hosts: tuple[Store, Store, Store]) -> None:
     store, _, _ = hosts
     store.publish(ALICE, "general", "general", "Public", "Hello")
