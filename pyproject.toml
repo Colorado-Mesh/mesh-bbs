@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 dependencies = [
-  "cryptography>=46,<49",
+  "cryptography>=46,<51",
   "feedparser>=6.0.12,<7",
   "httpx>=0.28,<1",
 ]
