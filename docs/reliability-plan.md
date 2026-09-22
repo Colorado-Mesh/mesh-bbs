@@ -57,3 +57,16 @@ finishes. SDK cleanup that consumes cancellation cannot restart the radio.
 A separate core audit reproduced a collision in the short random draft ID.
 Creation retries a bounded number of collisions while preserving the existing
 draft and its publication receipt.
+
+The web listener also bypasses the standard HTTP server's reverse-DNS lookup:
+an IP listener can start when name service is unavailable. Its regression test
+fails with the default listener and passes with the numeric address retained.
+
+The dependency floor moves to cryptography 50, with 50.0.1 locked, to include
+the fix for [GHSA-g6cj-pr64-35w5](https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5).
+The affected PKCS#7 envelope decryption functions are not used in BBS, RNS, or
+LXMF code; signed-event and real Reticulum integration tests verify the upgrade.
+Because current cryptography wheels cover Apple Silicon only on macOS, Intel
+installs check native compiler, Rust, and OpenSSL prerequisites before installing.
+The CI matrix includes an Intel Mac source build and the real installer with
+every protocol extra. Linux and Apple Silicon retain the same install command.

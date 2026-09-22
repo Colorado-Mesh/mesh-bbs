@@ -273,7 +273,9 @@ and an explicit trust update by peer operators.
 ## CI coverage
 
 GitHub CI checks formatting and typing once, exercises the core and packaged CLI
-on Python 3.12/3.13/3.14 on Ubuntu and Python 3.12 on macOS, and runs optional
+on Python 3.12/3.13/3.14 on Ubuntu and Python 3.12 on Apple Silicon and Intel
+macOS. The Intel job also builds cryptography from source and runs the actual
+installer with all protocol extras. CI runs optional
 adapter, TCP protocol emulator, and isolated Reticulum integration tests on
 Ubuntu. Dependencies come
 from `uv.lock`; uv is pinned to 0.12.3, and actions are pinned to commits.

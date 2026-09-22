@@ -28,7 +28,8 @@ newsletters into public channels.
 
 ## Install
 
-On Linux or macOS, run this as your normal user:
+On Linux or Apple Silicon macOS, run this as your normal user. Intel Macs need
+the [source-build prerequisites](docs/install.md#intel-macs) first:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Colorado-Mesh/mesh-bbs/main/install.sh | sh

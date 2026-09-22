@@ -7,6 +7,8 @@ isolated Python 3.12 environment and starts the community setup wizard:
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Colorado-Mesh/mesh-bbs/main/install.sh | sh
 ```
 
+Intel Macs need the [prerequisites below](#intel-macs) before this command.
+
 The wizard offers **Colorado Mesh** or **another mesh or region**. For another
 community, enter its name and a stable region ID such as `front-range`. Ask the
 other operators which ID to use before joining an existing community. Selecting
@@ -36,7 +38,7 @@ download and inspect `install.sh` before running `sh install.sh --ref ...`.
   `https://astral.sh/uv/install.sh`, with shell profile modification disabled.
 - Installs Mesh BBS into an isolated uv tool environment with a uv-managed
   Python 3.12. uv obtains that interpreter if needed; system Python is not
-  replaced or used, and an Xcode license prompt cannot block installation.
+  replaced or used. Intel Macs also need the native compiler described below.
 - Includes Reticulum, MeshCore, and Meshtastic adapter dependencies so enabling a
   connection later does not need another package install. To limit dependencies,
   use `--extras reticulum` (or a comma-separated list), or `--extras none` for
@@ -57,6 +59,30 @@ Without an interactive terminal, the installer prints the setup command. Use
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Colorado-Mesh/mesh-bbs/main/install.sh | sh -s -- --no-setup
 ~/.local/bin/mesh-bbs setup
 ```
+
+## Intel Macs
+
+The patched cryptography dependency no longer supplies Intel Mac wheels.
+Intel Macs build it from source, so the first install takes longer. With
+[Homebrew](https://brew.sh/) installed, prepare these tools first:
+
+```sh
+xcode-select --install
+brew install rust openssl@3
+```
+
+Wait for Command Line Tools installation to finish, then run the installer above.
+It checks the C compiler, Rust 1.83 or newer, and OpenSSL headers before changing
+the tool installation. It uses Homebrew's `openssl@3` directory, or preserves
+your explicit `OPENSSL_DIR` for another OpenSSL installation. It does not install
+system packages itself. Apple Silicon users should use a native arm64 terminal
+and Python, rather than Rosetta, to use prebuilt wheels.
+
+Upstream [removed Intel Mac support](https://cryptography.io/en/latest/changelog/#v49-0-0).
+Mesh BBS CI checks the source-build path on an Intel Mac runner, including the
+installer with every protocol extra; broader Intel macOS versions remain
+unverified. See the upstream [build prerequisites](https://cryptography.io/en/latest/installation/#building-cryptography-on-macos)
+for alternative toolchains.
 
 ## Community configuration
 

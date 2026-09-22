@@ -59,6 +59,8 @@ jobs:
         include:
           - os: macos-15
             python: "3.12"
+          - os: macos-15-intel
+            python: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,9 +72,28 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
           cache-suffix: core-${{ matrix.python }}
+      - name: Prepare Intel Mac crypto source build
+        if: matrix.os == 'macos-15-intel'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          openssl_prefix=$(brew --prefix openssl@3)
+          if [ ! -f "$openssl_prefix/include/openssl/ssl.h" ]; then
+            brew install openssl@3
+          fi
+          printf 'OPENSSL_DIR=%s\n' "$openssl_prefix" >> "$GITHUB_ENV"
+          rustc --version
       - run: uv sync --locked --group dev
       - name: Test without optional protocol libraries
         run: uv run --no-sync pytest -q -m 'not integration'
+      - name: Install with native crypto and all protocol extras
+        if: matrix.os == 'macos-15-intel'
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/mesh-bbs-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/mesh-bbs-bin
+        run: |
+          sh install.sh --no-setup --ref "$GITHUB_SHA"
+          "$UV_TOOL_BIN_DIR/mesh-bbs" --help
 
   protocols:
     name: Optional protocols and isolated Reticulum

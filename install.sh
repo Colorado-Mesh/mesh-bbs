@@ -2,6 +2,29 @@
 # Install only in the invoking user's account; running the service is a separate step.
 set -eu
 
+intel_macos_dependencies() {
+    if ! printf '#include <stdlib.h>\nint main(void) { return 0; }\n' | clang -x c -fsyntax-only - >/dev/null 2>&1; then
+        printf '%s\n' 'Intel Macs need working Xcode Command Line Tools. Run xcode-select --install, then retry.' >&2
+        return 1
+    fi
+    if ! cargo --version >/dev/null 2>&1 || ! rustc --version 2>/dev/null |
+        awk '/^rustc / { split($2, v, "."); valid = v[1] > 1 || (v[1] == 1 && v[2] >= 83) } END { exit !valid }'; then
+        printf '%s\n' 'Intel Macs need Rust 1.83 or newer. Run brew install rust openssl@3, then retry.' >&2
+        return 1
+    fi
+    mesh_bbs_openssl=${OPENSSL_DIR:-}
+    if [ -z "$mesh_bbs_openssl" ] && command -v brew >/dev/null 2>&1; then
+        mesh_bbs_openssl=$(brew --prefix openssl@3 2>/dev/null || true)
+    fi
+    if [ -z "$mesh_bbs_openssl" ] || [ ! -f "$mesh_bbs_openssl/include/openssl/ssl.h" ]; then
+        printf '%s\n' 'Intel Macs need OpenSSL development files. Run brew install openssl@3 or set OPENSSL_DIR to your OpenSSL installation.' >&2
+        return 1
+    fi
+    OPENSSL_DIR=$mesh_bbs_openssl
+    export OPENSSL_DIR
+    printf '%s\n' 'Intel Mac: compiling cryptography from source; the first install takes longer.'
+}
+
 main() {
     if [ "$(id -u)" = 0 ]; then
         printf '%s\n' 'Run this installer as your normal user, without sudo.' >&2
@@ -73,6 +96,9 @@ main() {
         /*) ;;
         *) printf '%s\n' 'UV_TOOL_BIN_DIR must be an absolute path.' >&2; return 1 ;;
     esac
+    if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = x86_64 ]; then
+        intel_macos_dependencies || return 1
+    fi
     if command -v uv >/dev/null 2>&1; then
         mesh_bbs_uv=$(command -v uv)
     elif [ -x "$mesh_bbs_bin/uv" ]; then
