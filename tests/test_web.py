@@ -56,6 +56,21 @@ def test_http_routes_serve_only_public_board_content(server: ReadOnlyWebServer) 
     assert request(server, "/healthz")[2] == b'{"status":"ok"}\n'
 
 
+def test_ip_listener_does_not_require_reverse_dns(tmp_path: Path, monkeypatch) -> None:
+    def unavailable_dns(*args, **kwargs):
+        raise AssertionError("Reverse DNS is unavailable")
+
+    monkeypatch.setattr(socket, "getfqdn", unavailable_dns)
+    store = Store(tmp_path / "bbs.db", "test")
+    instance = ReadOnlyWebServer(Views(store, "Offline host"), port=0)
+    try:
+        instance.start()
+        assert request(instance, "/healthz")[0] == 200
+    finally:
+        instance.stop()
+        store.close()
+
+
 def test_http_feed_never_uses_untrusted_host_header(server: ReadOnlyWebServer) -> None:
     status, headers, body = request(server, "/feeds/news.xml", headers={"Host": "evil.invalid"})
     assert status == 200

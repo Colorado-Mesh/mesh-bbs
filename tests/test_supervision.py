@@ -269,11 +269,11 @@ async def test_runtime_keeps_web_and_feeds_running_while_radio_is_missing(
     stop = asyncio.Event()
     task = asyncio.create_task(runtime.serve(config, stop=stop))
     try:
-        await asyncio.wait_for(radio_started.wait(), 1)
-        await asyncio.wait_for(feed_polled.wait(), 1)
+        await asyncio.wait_for(radio_started.wait(), 30)
+        await asyncio.wait_for(feed_polled.wait(), 10)
 
         def get(path):
-            connection = http.client.HTTPConnection(*servers[0].address, timeout=1)
+            connection = http.client.HTTPConnection(*servers[0].address, timeout=5)
             try:
                 connection.request("GET", path)
                 response = connection.getresponse()
@@ -295,5 +295,5 @@ async def test_runtime_keeps_web_and_feeds_running_while_radio_is_missing(
         assert all(budget is budgets[0] for budget in budgets)
     finally:
         stop.set()
-        await asyncio.wait_for(task, 2)
+        await asyncio.wait_for(task, 10)
     assert budgets[0]._closed

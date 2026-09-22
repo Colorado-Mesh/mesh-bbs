@@ -10,6 +10,7 @@ import threading
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -33,6 +34,12 @@ class _Server(ThreadingHTTPServer):
         if ":" in address[0]:
             self.address_family = socket.AF_INET6
         super().__init__(address, handler)
+
+    def server_bind(self) -> None:
+        # HTTPServer otherwise performs reverse DNS even for a loopback listener.
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = str(host), int(port)
 
     def get_request(self) -> tuple[socket.socket, Any]:
         connection, address = super().get_request()
