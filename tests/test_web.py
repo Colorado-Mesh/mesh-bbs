@@ -223,6 +223,6 @@ def test_http_follows_board_and_thread_cursors(server: ReadOnlyWebServer) -> Non
     assert f'href="/threads/{root.post_id}?after={after}"'.encode() in first
     status, _, second = request(server, f"/threads/{root.post_id}?after={after}")
     assert status == 200
-    assert all(f"/posts/{post.post_id}".encode() in second for post in replies[100:])
-    assert all(f"/posts/{post.post_id}".encode() not in second for post in replies[:100])
+    assert all(f'id="post-{post.post_id}"'.encode() in second for post in replies[100:])
+    assert all(f'id="post-{post.post_id}"'.encode() not in second for post in replies[:100])
     assert b"Next page" not in second

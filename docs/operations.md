@@ -7,22 +7,67 @@ Use `~/.local/bin/mesh-bbs` when the installer directory is not on your PATH.
 
 ```sh
 mesh-bbs --region colorado-mesh init
-mesh-bbs --region colorado-mesh doctor
-mesh-bbs --region colorado-mesh command 'boards'
+mesh-bbs --region colorado-mesh web-access create alice --editor
 mesh-bbs --region colorado-mesh serve
 ```
 
 `init` prints the host's public signing identity. `doctor` checks the local
 database and that enabled adapter libraries are installed; it does not prove
 that radios, peers, or a newsletter source are reachable. `serve` starts the
-read-only web reader, configured feed polling, and explicitly enabled transports.
+web interface, configured feed polling, and explicitly enabled transports.
 Press Ctrl-C to stop a foreground host.
 
-The default web reader is at `http://127.0.0.1:8080`; it does not accept posting
-requests. `/feeds/news.xml` exports the saved newsletter board as RSS. Set
-`public_url` to the actual external origin if readers connect through another
-address. Binding to a LAN address exposes configured boards to that network;
-there is no web login or private-board UI in this first version.
+Replace `alice` with your contributor name and save the generated key. Open
+`http://127.0.0.1:8080/connect` to sign in, then choose a board and write a post.
+The default board view is at `http://127.0.0.1:8080`; `/feeds/news.xml` exports
+the saved newsletter board as RSS. Readers need no access key. Boards remain
+public to anyone reaching the web listener.
+
+## Web contributors and public access
+
+Issue one key per contributor so authorship and revocation stay separate:
+
+```sh
+mesh-bbs --region colorado-mesh web-access create sam
+mesh-bbs --region colorado-mesh web-access create editor-lee --editor
+mesh-bbs --region colorado-mesh web-access list
+mesh-bbs --region colorado-mesh web-access revoke sam
+```
+
+Names use lowercase letters, numbers, and hyphens. The key is printed once;
+share it privately with that contributor. `list` reports names, editor roles,
+and revocation status without exposing keys. Names remain reserved after
+revocation and cannot be reassigned. If someone loses a key, revoke it and
+issue a new contributor name. A contributor is recorded as `web:NAME`, separate
+from their identity on any radio protocol.
+
+Ordinary contributors can post on general boards and reply to newsletter
+issues. An editor can also start issues on `news`. Browser forms are available
+at `/new/BOARD` and `/reply/POST_ID`. The browser saves unfinished drafts in
+local storage and keeps the access key in the current tab's session storage.
+Keep the key in private storage for future sessions. Drafts can remain on a
+shared computer after sign-out; clear them before leaving that computer.
+Do not paste access keys into URLs, public posts, screenshots, or issue reports.
+
+For public posting, provide HTTPS through an operator-managed reverse proxy
+and set the top-level config value to its exact external origin:
+
+```toml
+public_url = "https://bbs.example.org"
+```
+
+Keep the BBS listener on loopback when the proxy runs on the same computer.
+Allow the proxy to forward requests to that listener, and preserve the
+`Authorization` and `Origin` headers. `public_url` controls origin checks and
+published links; it does not configure DNS, certificates, or the proxy itself.
+Restart the service after editing it. The interface accepts writes over HTTPS
+or local loopback HTTP; exposing plain HTTP on a LAN does not enable posting.
+Key creation and revocation take effect from the database without a restart.
+
+The forms retain a publication operation ID when retrying a failed response,
+so a lost confirmation does not create another post. Publication means the
+local host saved the text. Web posts enter the same signed event store and
+Reticulum replication as posts submitted through radio commands.
 
 ## Connection recovery and monitoring
 
@@ -97,7 +142,7 @@ operator-managed launchd service; the systemd unit is Linux-only.
 | Reticulum | Reticulum installation and its configured interfaces | Dedicated `reticulum.config_dir`, then `enabled = true` |
 | MeshCore | Radio with stock companion firmware | Explicit serial device or TCP address; no Room Server |
 | Meshtastic | Radio with stock Meshtastic firmware | Explicit serial device or TCP address |
-| Web/RSS | Any browser or RSS reader reaching the host | Loopback by default; choose a listener and external URL if needed |
+| Web/RSS | Any browser or RSS reader reaching the host | Public reading; contributor key for posting; HTTPS and `public_url` for remote writes |
 
 No custom radio firmware is required by the adapters. Use a firmware/library
 combination you have checked in a local pilot. Close other programs that own the
@@ -110,6 +155,10 @@ MeshCore and Meshtastic users send the BBS node a direct message such as `help`,
 channel messages are not a command interface. A `#meshbbs` discovery channel can
 be agreed between local operators, but this version does not automatically
 announce newsletters or coordinate regional channel notices.
+
+For a short post, send `@meetup-1 post general Meetup | Saturday at nine`.
+For longer text, use the numbered draft commands in the
+[command guide](commands.md). The same guide covers LXMF and packet sessions.
 
 Reticulum users browse the announced NomadNet destination or send commands to
 the LXMF destination printed in the service logs. These are separate from the
@@ -198,7 +247,8 @@ mesh-bbs --region colorado-mesh command 'news latest'
 in logs. Do not give unrelated sources the same `source_id`, and do not change
 the ID merely because the publisher changed its URL.
 
-To publish a local UTF-8 text file as an issue:
+An editor can publish a newsletter in the web interface by opening the `news`
+board and creating a post. To publish a local UTF-8 text file as an issue:
 
 ```sh
 mesh-bbs --region colorado-mesh post news 'September newsletter' --body-file september.txt --operation colorado-news-2026-09
@@ -235,7 +285,8 @@ read issues and reply through the normal BBS commands.
 ## Back up and recover
 
 The database contains the host's private signing key as well as posts, removal
-history, drafts, and deduplication state. Keep backups private. Do not attach a
+history, drafts, deduplication state, and web contributor credential hashes.
+Keep backups private. Do not attach a
 database to a public issue or copy one into CI artifacts.
 
 For a consistent SQLite snapshot while the host is running:

@@ -73,6 +73,11 @@ def run_setup(config_path: Path | None = None) -> Path:
         print("Add your community's RSS/Atom source to the config to import newsletters.")
     quoted = shlex.quote(str(target))
     print(f"Next: mesh-bbs --config {quoted} init")
-    print(f"Then: mesh-bbs --config {quoted} serve")
+    print(f"Create your editor key: mesh-bbs --config {quoted} web-access create alice --editor")
+    print("Replace alice with your contributor name. Save the generated key privately.")
+    print(f"Start the host: mesh-bbs --config {quoted} serve")
     print(f"Local web address: http://{config.bind_host}:{config.bind_port}")
+    print(f"Sign in: http://{config.bind_host}:{config.bind_port}/connect")
+    print("Enter the access key on the sign-in page, then choose a board and write a post.")
+    print("Setup has not created an access key or started the host.")
     return target

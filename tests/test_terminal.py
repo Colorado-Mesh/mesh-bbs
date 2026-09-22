@@ -74,6 +74,45 @@ def test_read_only_session_lists_only_selected_boards(service: CommandService) -
     assert service.store.db.execute("SELECT count(*) FROM drafts").fetchone()[0] == 0
 
 
+def test_quick_post_obeys_packet_write_and_board_policy(service: CommandService) -> None:
+    command = "@meetup post general Saturday meetup | Bring a radio | and batteries."
+    readonly = session(service, command)
+    assert "read only" in readonly[1]
+    assert not service.store.list_posts("general")
+
+    frames = session(service, command + "\n" + command, allow_posts=True)
+    assert frames[1] == frames[2] and frames[1].startswith("Saved locally as")
+    post = service.store.list_posts("general")[0]
+    assert post.author == "packet:N0CALL"
+    assert post.body == "Bring a radio | and batteries."
+    assert service.store.db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
+    assert "read only" in session(service, command)[1]
+    assert "not available" in session(service, command, boards=("other",), allow_posts=True)[1]
+
+
+def test_packet_quick_post_cannot_publish_news_or_unlisted_board(service: CommandService) -> None:
+    frames = session(
+        service,
+        "@hidden post other Secret | Hidden text\n"
+        "@official post news Official newsletter | Unapproved issue\n",
+        boards=("general", "news"),
+        allow_posts=True,
+    )
+    assert "not available" in frames[1]
+    assert "editor" in frames[2]
+    assert service.store.db.execute("SELECT count(*) FROM posts").fetchone()[0] == 0
+    assert service.store.db.execute("SELECT count(*) FROM command_receipts").fetchone()[0] == 0
+
+
+def test_packet_help_advertises_quick_post_only_when_writes_are_allowed(
+    service: CommandService,
+) -> None:
+    writable = session(service, "help", allow_posts=True, max_bytes=1024)[1]
+    readonly = session(service, "help", max_bytes=1024)[1]
+    assert "post BOARD TITLE | TEXT" in writable
+    assert "post BOARD" not in readonly
+
+
 def test_board_allowlist_covers_posts_threads_news_and_listing_anchors(
     service: CommandService,
 ) -> None:

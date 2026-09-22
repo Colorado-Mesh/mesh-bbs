@@ -51,6 +51,12 @@ MeshCore companion messages do not expose a stable packet ID, so the BBS does
 not pretend text equality is a reliable identifier. Draft publication provides
 safe application retries on all transports.
 
+The single-message `post BOARD TITLE | TEXT` command uses the same permissions
+and limits as draft publication. Each new command gets a fresh publication
+operation; its post and command receipt commit together. An explicit `@ID`
+or usable native request ID replays the result. Equal unlabelled text remains
+a new submission, so manual retries should keep their original `@ID`.
+
 A transport ACK does not mean the BBS committed a post or that another host
 has replicated it. The application returns a saved-local receipt. Radio queues
 are bounded and held in memory: after a restart, a user may need to retry a
@@ -116,7 +122,8 @@ posts, drafts, receipts, and reading cursors belong to the core.
   `reticulum:<LXMF destination hash>`, distinct from a server's RNS identity.
 - NomadNet: public reading at the `nomadnetwork.node` destination; no CGI or
   external subprocess rendering. User content is rendered as Micron literals.
-- Web: public read-only pages and RSS, loopback by default; no HTTP write API.
+- Web: public server-rendered reading and RSS, plus authenticated publication
+  through the standalone web interface. The listener defaults to loopback.
 
 MeshCore and Meshtastic responses default to 160 UTF-8 bytes including page
 markers. LXMF command pages use 4096 bytes. Full posts remain bounded at 64 KiB.
@@ -129,5 +136,35 @@ allowlist, starts read-only, and never grants editorial rights to a callsign.
 See [transports](transports.md) for integration and session policy. The switch
 owns AX.25 connections, station identification, and RF scheduling; encrypted
 Reticulum synchronization must not automatically be sent over amateur bands.
-Native TNC management, subscription notifications, attachments, automatic PDF
-extraction, and a richer editor interface remain follow-up work.
+Native TNC management, subscription notifications, attachments, and automatic
+PDF extraction remain follow-up work.
+
+## Web contributor access
+
+The operator issues a bearer access key with `web-access create NAME`. The
+database stores its hash and a permanent `web:NAME` identity. Revoking a key
+does not release its name for reassignment. These identities are separate from
+the same person's MeshCore, Meshtastic, or LXMF address; a web login does not
+claim cryptographic authorship on their other protocols. Access keys are
+credentials, unlike the host's public federation identity.
+
+Public reading requires no login. `/connect` accepts an access key for the
+current browser tab. `/new/BOARD` and `/reply/POST_ID` provide forms for a thread
+or reply. Browser drafts live in local storage, while the access key uses tab
+session storage. Neither drafts nor keys are placed in URLs. Authentication
+uses an authorization header, with no authentication cookies. Drafts are local
+to that browser and origin, not replicated BBS posts.
+
+Web writes require a loopback origin or a configured HTTPS public origin.
+Operators terminating TLS at a reverse proxy set `public_url` to the external
+HTTPS origin. The web server validates the origin and key before publication;
+public reading does not grant write privileges.
+
+The publication service rechecks contributor revocation and editorial
+permission in the write transaction. Only editors may start `news` issues;
+contributors may reply to them. Publication operation IDs provide durable
+retries, and changing content under an existing ID is rejected. Thirty new
+publications per contributor per minute are permitted; receipt replays do not
+consume another publication allowance. The web interface stores the current
+operation with its draft so retrying a lost response does not create a second
+post. A saved-local receipt still makes no claim about federation delivery.

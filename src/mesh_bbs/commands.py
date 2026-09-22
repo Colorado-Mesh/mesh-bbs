@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 import time
 import unicodedata
 
@@ -11,6 +12,7 @@ from mesh_bbs.store import Store
 
 HELP = (
     "boards | threads BOARD | thread ID | read ID | more | news [latest] | "
+    "post BOARD TITLE | TEXT | "
     "new BOARD TITLE | add DRAFT N TEXT | preview DRAFT | publish DRAFT | "
     "reply ID TEXT | discard DRAFT"
 )
@@ -193,6 +195,15 @@ class CommandService:
             return self._begin_page(actor, listing, "news", budget)
         if verb == "read":
             return self._read(actor, arguments, budget)
+        if verb == "post":
+            heading, separator, body = arguments.partition("|")
+            board, _, title = heading.strip().partition(" ")
+            title, body = title.strip(), body.strip()
+            if not separator or not board or not title or not body:
+                raise BBSError("Use post BOARD TITLE | TEXT")
+            self._can_start(actor, board)
+            post = self.store.publish(actor, secrets.token_hex(16), board, title, body)
+            return f"Saved locally as {post.post_id[:12]}. Replication is pending."
         if verb == "new":
             board, _, title = arguments.partition(" ")
             self._can_start(actor, board)

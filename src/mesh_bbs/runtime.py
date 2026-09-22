@@ -26,6 +26,7 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
     from mesh_bbs.newsletters import NewsletterImporter
     from mesh_bbs.views import Views
     from mesh_bbs.web import ReadOnlyWebServer
+    from mesh_bbs.web_access import WebAccess
 
     store = open_store(config)
     commands = CommandService(store, config.editors)
@@ -101,7 +102,11 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
         base_url = config.public_url or f"http://{public_host}:{config.bind_port}"
         views = Views(store, config.name, base_url=base_url)
         web = ReadOnlyWebServer(
-            views, config.bind_host, config.bind_port, readiness=partial(radio_readiness, radios)
+            views,
+            config.bind_host,
+            config.bind_port,
+            readiness=partial(radio_readiness, radios),
+            access=WebAccess(store, config.editors),
         )
         web.start()
         peer_boards = {

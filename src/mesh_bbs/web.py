@@ -1,25 +1,71 @@
-"""Bounded read-only HTTP service; put a TLS reverse proxy in front for public use."""
+"""Bounded web reading and authenticated posting behind an optional TLS proxy."""
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
 import socket
 import threading
+import time
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from mesh_bbs.events import SLUG, BBSError
 from mesh_bbs.views import Views
+from mesh_bbs.web_access import AccessDenied, WebAccess, WebUser
 
 LOG = logging.getLogger(__name__)
 MAX_TARGET = 2048
 MAX_QUERY = 1024
+MAX_POST_BYTES = 400 * 1024
+
+
+def _loopback(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _write_origins(base_url: str, address: tuple[str, int]) -> tuple[str, ...]:
+    parsed = urlsplit(base_url)
+    origins: list[str] = []
+    if parsed.scheme == "https" or _loopback(parsed.hostname or ""):
+        host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        port = parsed.port
+        suffix = f":{port}" if port and port != (443 if parsed.scheme == "https" else 80) else ""
+        origins.append(f"{parsed.scheme}://{host}{suffix}")
+    host, port = address
+    if _loopback(host):
+        origins.append(f"http://localhost:{port}")
+        if ":" in host:
+            host = f"[{host}]"
+        origins.append(f"http://{host}:{port}")
+    return tuple(dict.fromkeys(origins))
+
+
+def _json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise BBSError("Repeated JSON fields are not allowed")
+        result[key] = value
+    return result
+
+
+def _reject_constant(_value: str) -> Any:
+    raise BBSError("JSON must not contain non-finite numbers")
 
 
 class _Server(ThreadingHTTPServer):
@@ -91,7 +137,12 @@ class _Server(ThreadingHTTPServer):
 Readiness = Callable[[], tuple[bool, dict[str, Any]]]
 
 
-def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestHandler]:
+def _handler(
+    views: Views,
+    readiness: Readiness | None,
+    access: WebAccess | None = None,
+    allowed_origins: tuple[str, ...] = (),
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "MeshBBS"
         sys_version = ""
@@ -104,15 +155,19 @@ def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestH
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; "
+                "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
             )
             if status == 405:
-                self.send_header("Allow", "GET, HEAD")
+                methods = (
+                    "POST" if access is not None and self.path == "/api/posts" else "GET, HEAD"
+                )
+                self.send_header("Allow", methods)
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
@@ -126,7 +181,41 @@ def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestH
             self, code: int, message: str | None = None, explain: str | None = None
         ) -> None:
             phrase = HTTPStatus(code).phrase if code in HTTPStatus._value2member_map_ else "Error"
+            if getattr(self, "path", "").startswith("/api/") and access is not None:
+                self._json(code, {"error": phrase})
+                return
             self._send(code, "text/plain; charset=utf-8", (phrase + "\n").encode())
+
+        def _json(self, status: int, payload: dict[str, Any]) -> None:
+            body = (json.dumps(payload, ensure_ascii=True) + "\n").encode("utf-8")
+            self._send(status, "application/json; charset=utf-8", body)
+
+        def _authenticate(self, *, require_origin: bool) -> WebUser:
+            assert access is not None
+            for header in ("Authorization", "Origin", "Content-Length", "Content-Type"):
+                if len(self.headers.get_all(header, [])) > 1:
+                    raise BBSError("Repeated security headers are not allowed")
+            if self.headers.get_all("Transfer-Encoding"):
+                raise BBSError("Transfer-Encoding is not supported")
+            if not allowed_origins:
+                raise AccessDenied("Web posting requires HTTPS or a loopback address", status=403)
+            origin = self.headers.get("Origin")
+            if (require_origin or origin is not None) and origin not in allowed_origins:
+                raise AccessDenied("Request origin is not allowed", status=403)
+            authorization = self.headers.get("Authorization", "")
+            match = re.fullmatch(r"Bearer ([A-Za-z0-9_-]{43})", authorization, re.IGNORECASE)
+            if match is None:
+                raise AccessDenied()
+            return access.authenticate(match[1])
+
+        def _session(self) -> None:
+            try:
+                user = self._authenticate(require_origin=False)
+                self._json(200, {"actor": user.actor, "editor": user.editor})
+            except AccessDenied as error:
+                self._json(error.status, {"error": str(error)})
+            except BBSError as error:
+                self._json(400, {"error": str(error)})
 
         def do_GET(self) -> None:
             if len(self.path) > MAX_TARGET:
@@ -170,10 +259,29 @@ def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestH
                     body = (json.dumps(report, sort_keys=True) + "\n").encode("utf-8")
                     self._send(200 if ready else 503, "application/json; charset=utf-8", body)
                     return
+                if path == "/api/session" and access is not None:
+                    self._session()
+                    return
+                if path in {"/assets/bbs.css", "/assets/bbs.js"}:
+                    asset = path.rsplit("/", 1)[1]
+                    body = files("mesh_bbs").joinpath("static", asset).read_bytes()
+                    content_type = (
+                        "text/css; charset=utf-8"
+                        if asset.endswith(".css")
+                        else "text/javascript; charset=utf-8"
+                    )
+                    self._send(200, content_type, body)
+                    return
                 content_type = "text/html; charset=utf-8"
                 parts = path.split("/")
                 if path == "/":
                     body = views.html_index()
+                elif path == "/connect" and access is not None:
+                    body = views.html_connect()
+                elif len(parts) == 3 and parts[1] == "new" and access is not None:
+                    body = views.html_compose(board=parts[2])
+                elif len(parts) == 3 and parts[1] == "reply" and access is not None:
+                    body = views.html_compose(parent_id=parts[2])
                 elif len(parts) == 3 and parts[1] == "boards" and SLUG.fullmatch(parts[2]):
                     body = views.html_board(parts[2], after_id=after_id)
                 elif len(parts) == 3 and parts[1] == "posts":
@@ -206,14 +314,80 @@ def _handler(views: Views, readiness: Readiness | None) -> type[BaseHTTPRequestH
             self.do_GET()
 
         def do_POST(self) -> None:
+            if access is None:
+                self.send_error(405)
+                return
+            if self.path != "/api/posts":
+                self._json(404, {"error": "Not Found"})
+                return
+            try:
+                user = self._authenticate(require_origin=True)
+                content_type = self.headers.get("Content-Type", "")
+                if not re.fullmatch(
+                    r'application/json(?:\s*;\s*charset=(?:utf-8|"utf-8"))?',
+                    content_type,
+                    re.IGNORECASE,
+                ):
+                    self._json(415, {"error": "Use application/json with UTF-8 text"})
+                    return
+                length = self.headers.get("Content-Length", "")
+                if not re.fullmatch(r"[0-9]{1,10}", length):
+                    self._json(411, {"error": "A single Content-Length is required"})
+                    return
+                size = int(length)
+                if not 0 < size <= MAX_POST_BYTES:
+                    self._json(413, {"error": "Request body exceeds the limit or is empty"})
+                    return
+                deadline = time.monotonic() + 5.0
+                chunks = bytearray()
+                while len(chunks) < size:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    self.connection.settimeout(remaining)
+                    chunk = self.rfile.read1(min(65536, size - len(chunks)))
+                    if not chunk:
+                        raise BBSError("Request body ended before Content-Length")
+                    chunks.extend(chunk)
+                payload = json.loads(
+                    chunks.decode("utf-8"),
+                    object_pairs_hook=_json_object,
+                    parse_constant=_reject_constant,
+                )
+                if not isinstance(payload, dict):
+                    raise BBSError("Post body must be a JSON object")
+                post = access.publish(user, payload)
+                self._json(
+                    201,
+                    {
+                        "status": "saved_locally",
+                        "post_id": post.post_id,
+                        "thread_id": post.thread_id,
+                        "parent_id": post.parent_id,
+                        "revision_id": post.revision_id,
+                    },
+                )
+            except AccessDenied as error:
+                self._json(error.status, {"error": str(error)})
+            except TimeoutError:
+                self._json(408, {"error": "Request body timed out"})
+            except BBSError as error:
+                self._json(400, {"error": str(error)})
+            except (UnicodeError, ValueError, RecursionError):
+                self._json(400, {"error": "Invalid post data"})
+            except Exception:
+                LOG.error("Could not save a web post")
+                self._json(500, {"error": "Could not save the post"})
+
+        def _unsupported_method(self) -> None:
             self.send_error(405)
 
-        do_PUT = do_POST
-        do_PATCH = do_POST
-        do_DELETE = do_POST
-        do_OPTIONS = do_POST
-        do_TRACE = do_POST
-        do_CONNECT = do_POST
+        do_PUT = _unsupported_method
+        do_PATCH = _unsupported_method
+        do_DELETE = _unsupported_method
+        do_OPTIONS = _unsupported_method
+        do_TRACE = _unsupported_method
+        do_CONNECT = _unsupported_method
 
     return Handler
 
@@ -233,6 +407,7 @@ class ReadOnlyWebServer:
         port: int = 8080,
         *,
         readiness: Readiness | None = None,
+        access: WebAccess | None = None,
     ) -> None:
         if not isinstance(host, str) or not host or len(host) > 255:
             raise ValueError("A valid bind address is required")
@@ -240,6 +415,7 @@ class ReadOnlyWebServer:
             raise ValueError("Port must be between 0 and 65535")
         self.views, self.host, self.port = views, host, port
         self._readiness = readiness
+        self._access = access
         self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
@@ -254,6 +430,13 @@ class ReadOnlyWebServer:
         if self._server is not None:
             raise RuntimeError("HTTP service is already running")
         server = _Server((self.host, self.port), _handler(self.views, self._readiness))
+        bound_host, bound_port = server.server_address[:2]
+        server.RequestHandlerClass = _handler(
+            self.views,
+            self._readiness,
+            self._access,
+            _write_origins(self.views.base_url, (str(bound_host), int(bound_port))),
+        )
         thread = threading.Thread(
             target=server.serve_forever,
             kwargs={"poll_interval": 0.1},

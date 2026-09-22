@@ -21,3 +21,10 @@
   must survive worker shutdown, and reconnects must reuse the airtime budget.
 - Run PTY/fork tests in a separate process: imported radio SDKs can leave
   dispatcher threads alive even after individual connections have closed.
+- Web authors and editor permissions come from authenticated server records,
+  never request fields. Recheck revocation in the publication transaction.
+- Preserve an uncertain publication's operation and payload across retries.
+  Browser drafts must not overwrite another tab's newer saved text, and delayed
+  authentication responses must not replace a different current account.
+- Keep synchronous Playwright fixtures scoped to their test module so their
+  event loop closes before the asynchronous protocol tests run.

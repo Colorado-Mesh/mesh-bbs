@@ -27,12 +27,18 @@ class Elements(HTMLParser):
         self.tags: list[str] = []
         self.links: list[str] = []
         self.next_links: list[str] = []
+        self.scripts: list[str | None] = []
+        self.articles: list[str] = []
         self.feed(content)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.tags.append(tag)
         self.links.extend(value for key, value in attrs if key == "href" and value is not None)
         attributes = dict(attrs)
+        if tag == "script":
+            self.scripts.append(attributes.get("src"))
+        if tag == "article" and attributes.get("id"):
+            self.articles.append(str(attributes["id"]))
         if tag == "a" and attributes.get("rel") == "next" and attributes.get("href"):
             self.next_links.append(str(attributes["href"]))
 
@@ -49,11 +55,14 @@ def test_html_escapes_posts_authors_and_service_names(store: Store) -> None:
     ):
         rendered = document.decode()
         parsed = Elements(rendered)
-        assert "script" not in parsed.tags
+        assert parsed.scripts == ["/assets/bbs.js"]
         assert "svg" not in parsed.tags
         assert "img" not in parsed.tags
         assert "main" in parsed.tags
-        assert all(link.startswith("/") and not link.startswith("//") for link in parsed.links)
+        assert all(
+            link == "#content" or (link.startswith("/") and not link.startswith("//"))
+            for link in parsed.links
+        )
         assert payload not in rendered
     assert "&lt;img" in views.html_post(post.post_id).decode()
 
@@ -258,9 +267,7 @@ def test_thread_pages_reach_all_replies_including_new_arrivals(store: Store) -> 
     first_html = Elements(views.html_thread(root.post_id).decode())
     first_micron = views.page("/page/thread.mu", {"var_id": root.post_id}).decode()
     assert first_html.next_links == [f"/threads/{root.post_id}?after={cursor}"]
-    assert [link for link in first_html.links if link.startswith("/posts/")] == [
-        f"/posts/{post.post_id}" for post in original[:100]
-    ]
+    assert first_html.articles == [f"post-{post.post_id}" for post in original[:100]]
     assert re.findall(r"Read full post`:/page/post.mu`id=([0-9a-f]{64})", first_micron) == [
         post.post_id for post in original[:100]
     ]
@@ -280,9 +287,7 @@ def test_thread_pages_reach_all_replies_including_new_arrivals(store: Store) -> 
     second_micron = views.page(
         "/page/thread.mu", {"var_id": root.post_id, "var_after": cursor}
     ).decode()
-    assert [link for link in second_html.links if link.startswith("/posts/")] == [
-        f"/posts/{post_id}" for post_id in remaining
-    ]
+    assert second_html.articles == [f"post-{post_id}" for post_id in remaining]
     assert (
         re.findall(r"Read full post`:/page/post.mu`id=([0-9a-f]{64})", second_micron) == remaining
     )

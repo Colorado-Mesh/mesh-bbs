@@ -48,7 +48,8 @@ download and inspect `install.sh` before running `sh install.sh --ref ...`.
   never overwritten by the wizard.
 
 Do not use `sudo`. Installation does not enable radio interfaces, start a
-background service, or edit your shell startup files. Run `~/.local/bin/mesh-bbs`
+background service, create contributor keys, or edit your shell startup files.
+Run `~/.local/bin/mesh-bbs`
 directly if that directory is not on your PATH. If `UV_TOOL_BIN_DIR` contains
 spaces, quote the executable path when running it.
 
@@ -107,14 +108,28 @@ The wizard prints these next steps using your actual configuration path:
 
 ```sh
 ~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml init
+~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml web-access create alice --editor
 ~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml serve
 ```
 
-The web listener defaults to `http://127.0.0.1:8080` and serves local readers.
-Set `public_url` to the actual HTTP(S) origin (for example,
-`https://bbs.example.org`) when publishing RSS through another address or a
-reverse proxy. This controls links in the feed; it does not change the listener
-or configure DNS or TLS.
+Replace `alice` with your contributor name. The second command prints an access
+key once; save it privately. Open `http://127.0.0.1:8080/connect` and enter that
+key to write posts or newsletter issues. Ordinary contributors get a key with
+the same command without `--editor`. Public board reading at
+`http://127.0.0.1:8080` needs no key. This is a standalone Mesh BBS interface and
+requires no Mesh Client installation.
+
+For another region or a config path containing spaces, use the exact commands
+printed by setup. The browser keeps the key in tab session storage and unfinished
+drafts in local storage. A web contributor appears as `web:NAME`; that identity
+is separate from their radio identity.
+
+For remote posting, configure an HTTPS reverse proxy and set `public_url` to
+the external origin, for example `https://bbs.example.org`. Plain HTTP writes
+are limited to loopback access. `public_url` also controls links in the feed;
+it does not change the listener or configure DNS or TLS. See
+[web contributor operations](operations.md#web-contributors-and-public-access)
+for issuing and revoking keys and configuring public access.
 See [the annotated configuration](../examples/config.toml) for feeds, editors,
 trusted peers, and explicit transport settings. A peer with no `allowed_boards`
 has no board access. Giving a peer `can_moderate = true` is a separate decision

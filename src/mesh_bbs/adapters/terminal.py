@@ -12,7 +12,7 @@ from mesh_bbs.events import BBSError, stable_id
 
 _READ_COMMANDS = frozenset({"", "help", "boards", "threads", "thread", "read", "news", "more"})
 _DRAFT_COMMANDS = frozenset({"add", "preview", "publish", "discard"})
-_WRITE_COMMANDS = _DRAFT_COMMANDS | {"new", "reply"}
+_WRITE_COMMANDS = _DRAFT_COMMANDS | {"post", "new", "reply"}
 _CALLSIGN = re.compile(r"[A-Z0-9]{2,6}(?:-(?:[0-9]|1[0-5]))?\Z", re.ASCII)
 
 
@@ -108,7 +108,7 @@ class _TerminalCommands(CommandService):
         target, _, remainder = arguments.partition(" ")
         if verb == "news":
             self._require_board("news")
-        elif verb in {"threads", "new"}:
+        elif verb in {"threads", "post", "new"}:
             self._require_board(target)
             if verb == "threads" and remainder:
                 self._require_post(remainder)
@@ -138,6 +138,7 @@ class _TerminalCommands(CommandService):
                 help_text += " | news [latest]"
             if self.allow_posts:
                 help_text += (
+                    " | post BOARD TITLE | TEXT"
                     " | new BOARD TITLE | add DRAFT N TEXT | preview DRAFT | publish DRAFT"
                     " | reply ID TEXT | discard DRAFT | @ID COMMAND to retry safely"
                 )

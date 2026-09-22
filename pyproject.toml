@@ -24,6 +24,9 @@ meshtastic = ["meshtastic==2.7.11"]
 mesh-bbs = "mesh_bbs.cli:main"
 
 [dependency-groups]
+browser = [
+    "playwright>=1.63,<2",
+]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "pytest-cov>=6,<8", "ruff>=0.12,<1", "mypy>=1.16,<2", "hatchling>=1.27,<2"]
 
 [tool.pytest.ini_options]

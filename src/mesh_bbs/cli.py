@@ -72,6 +72,14 @@ def parser() -> argparse.ArgumentParser:
     backup.add_argument("destination", type=Path)
     feeds = commands.add_parser("import-feeds", help="Fetch configured RSS/Atom sources once")
     feeds.add_argument("--force", action="store_true")
+    web_access = commands.add_parser("web-access", help="Manage web contributor access keys")
+    access_actions = web_access.add_subparsers(dest="access_action", required=True)
+    create_access = access_actions.add_parser("create", help="Create a key, displayed only once")
+    create_access.add_argument("name", help="Permanent contributor name; do not reuse for others")
+    create_access.add_argument("--editor", action="store_true")
+    revoke_access = access_actions.add_parser("revoke", help="Revoke a key and reserve its name")
+    revoke_access.add_argument("name")
+    access_actions.add_parser("list", help="List contributors without exposing keys")
     return result
 
 
@@ -114,6 +122,23 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 print(response)
                 return int(response.startswith("Error:"))
+            elif args.action == "web-access":
+                from mesh_bbs.web_access import WebAccess
+
+                access = WebAccess(store, config.editors)
+                if args.access_action == "create":
+                    token = access.create(args.name, editor=args.editor)
+                    print(
+                        f"Created web:{args.name}. Save this access key; it is shown only once. "
+                        "Share it privately with that contributor.",
+                        file=sys.stderr,
+                    )
+                    print(token)
+                elif args.access_action == "revoke":
+                    access.revoke(args.name)
+                    print(f"Revoked web:{args.name}. The contributor name remains reserved.")
+                else:
+                    print(json.dumps(access.list_users(), indent=2))
             elif args.action == "terminal":
                 from mesh_bbs.adapters.terminal import run_terminal
 

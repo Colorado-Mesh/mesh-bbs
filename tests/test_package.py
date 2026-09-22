@@ -62,6 +62,16 @@ def test_installed_wheel_can_initialize_publish_read_and_back_up(tmp_path: Path)
     )
     executable = str(tmp_path / "venv/bin/mesh-bbs")
     assert run([executable, "--version"]).strip()
+    run(
+        [
+            str(tmp_path / "venv/bin/python"),
+            "-c",
+            "from importlib.resources import files; "
+            "assets = files('mesh_bbs').joinpath('static'); "
+            "assert b'.masthead' in assets.joinpath('bbs.css').read_bytes(); "
+            "assert b'/api/posts' in assets.joinpath('bbs.js').read_bytes()",
+        ]
+    )
     config = tmp_path / "config.toml"
     config.write_text(
         'name = "Packaged host"\nregion = "package-test"\n'
@@ -72,6 +82,10 @@ def test_installed_wheel_can_initialize_publish_read_and_back_up(tmp_path: Path)
     identity = json.loads(run([*command, "init"]))
     assert identity["region"] == "package-test"
     assert len(identity["origin"]) == 64
+    key = run([*command, "web-access", "create", "alice", "--editor"]).strip()
+    assert len(key) == 43
+    contributors = run([*command, "web-access", "list"])
+    assert "web:alice" in contributors and key not in contributors
     body = tmp_path / "newsletter.txt"
     body.write_text("A newsletter from the installed wheel.\n", encoding="utf-8")
     post = [
