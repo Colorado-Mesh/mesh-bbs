@@ -422,6 +422,7 @@ async def test_sdk_disconnect_after_publish_and_reconnect_replays_receipt(tmp_pa
 
 async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_path):
     store = Store(tmp_path / "bbs.db", "test")
+    service = CommandService(store)
     box = AnnouncementOutbox(store, "meshcore")
     post = store.publish("local:a", "new", "general", "New meeting", "Body")
     radio = CompanionEmulator()
@@ -431,7 +432,7 @@ async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_pat
         port = await radio.start()
 
         async def command(message):
-            return ""
+            return service.handle(message.sender, message.text, request_id=message.message_id)
 
         adapter = MeshCoreAdapter(
             command,
@@ -445,8 +446,10 @@ async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_pat
         )
         await adapter.start()
         text = await asyncio.wait_for(radio.channel_notices.get(), 3)
-        assert f"read {post.post_id[:12]}; more" in text
-        assert text.startswith("New [general] New meeting")
+        assert "private message: read #1" in text
+        assert text.startswith('New post in general:\n"New meeting"')
+        assert store.get_post("#1").post_id == post.post_id
+        assert "Body" in await exchange(radio, adapter, "read #1")
         assert not box.poll(time.time())
     finally:
         if adapter:
@@ -483,7 +486,8 @@ async def test_sdk_channel_help_then_dm_help_and_more(tmp_path):
         await adapter.start()
         await radio.deliver_channel("Reader: help")
         text = await asyncio.wait_for(radio.channel_notices.get(), 3)
-        assert "DM BBS emulator" in text and "with help. Pick a number" in text
+        assert "Send BBS emulator a private message: help" in text
+        assert "Choose a number" in text
         first = await exchange(radio, adapter, "help")
         assert "1 News & newsletters" in first
         assert "3 Write/resume" in first

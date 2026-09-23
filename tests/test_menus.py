@@ -114,3 +114,24 @@ def test_draft_resume_after_menu_expiry(tmp_path, monkeypatch):
         assert "Posted" in service.handle("a", "publish")
     finally:
         store.close()
+
+
+def test_notice_shortcut_preserves_an_unfinished_post(tmp_path):
+    store = Store(tmp_path / "bbs.db", "test")
+    try:
+        post = store.publish("local:b", "other", "general", "A notice", "Read this")
+        number = store.post_number(post.post_id)
+        service = CommandService(store)
+        for text in ("help", "3", "1", "My title", "My first paragraph"):
+            assert not service.handle("a", text).startswith("Error")
+        assert "Read this" in service.handle("a", f"read #{number}")
+        service.handle("a", "menu")
+        assert "text" in service.handle("a", "3")
+        service.handle("a", "My second paragraph")
+        service.handle("a", "done")
+        assert "Posted" in service.handle("a", "publish")
+        saved = next(p for p in store.list_posts("general") if p.author == "a")
+        assert saved.title == "My title"
+        assert saved.body == "My first paragraph\nMy second paragraph"
+    finally:
+        store.close()

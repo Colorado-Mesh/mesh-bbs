@@ -3,7 +3,10 @@ Description=Mesh BBS community host
 
 [Service]
 Type=exec
-# Adjust both paths for a custom installation or region.
+# Linux user unit: copy to ~/.config/systemd/user/mesh-bbs.service.
+# Set the executable and config paths for this installation and region.
+# Test foreground serve first; enable with systemctl --user enable --now mesh-bbs.
+# A second instance needs another unit name, data directory, and web port.
 ExecStart="%h/.local/bin/mesh-bbs" --config "%h/.config/mesh-bbs/colorado-mesh/config.toml" serve
 Restart=on-failure
 RestartSec=10s

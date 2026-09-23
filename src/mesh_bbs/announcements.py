@@ -19,6 +19,13 @@ QUEUE_LIMIT = 32
 MAX_AGE = 86400
 
 
+def _label(text: str, max_bytes: int) -> str:
+    text = " ".join(display_text(text).split())
+    if len(text.encode()) <= max_bytes:
+        return text
+    return byte_prefix(text, max_bytes - 3) + "..."
+
+
 class AnnouncementOutbox:
     def __init__(self, store: Store, protocol: str, *, interval: int = 600) -> None:
         if protocol not in {"meshcore", "meshtastic"} or not 300 <= interval <= 86400:
@@ -139,7 +146,11 @@ class AnnouncementOutbox:
                 if board not in self.store.boards or row["created"] < now - MAX_AGE:
                     continue
                 if key.startswith("board:"):
-                    text = f"New BBS board. DM this node: threads {board}; more"
+                    prefix = "New board: "
+                    suffix = "\nTo browse it, send me a private message: boards"
+                    text = (
+                        prefix + _label(board, max_bytes - len((prefix + suffix).encode())) + suffix
+                    )
                 else:
                     try:
                         post = self.store.get_post(key)
@@ -147,12 +158,13 @@ class AnnouncementOutbox:
                         continue
                     if post.deleted:
                         continue
-                    prefix = f"New [{board}] "
-                    suffix = f"\nDM this node: read {key[:12]}; more"
-                    title = " ".join(display_text(post.title).split())
+                    number = self.store.post_number(post.post_id)
+                    suffix = f'"\nTo read it, send me a private message: read #{number}'
+                    board_limit = max_bytes - len(('New post in :\n"' + suffix).encode()) - 16
+                    prefix = f'New post in {_label(board, board_limit)}:\n"'
                     text = (
                         prefix
-                        + byte_prefix(title, max_bytes - len((prefix + suffix).encode()))
+                        + _label(post.title, max_bytes - len((prefix + suffix).encode()))
                         + suffix
                     )
                 self.store.db.execute(

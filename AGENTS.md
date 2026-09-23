@@ -1,30 +1,55 @@
-# Project guidance
+# Contributor instructions
 
-- Use Python 3.12+ and uv. Keep the storage and command layers independent of
-  radio libraries. Optional adapters must not prevent offline CLI use.
-- New branches describe their work, for example `feature/newsletter-import`.
-  Never create branches with agent, codex, or other assistant identity prefixes.
-- Do not merge pull requests, publish releases, operate real radios, or change
-  an installed application's profile without explicit user authorization.
-- Every accepted operation and its deduplication record commit together.
-  Preserve post IDs and parent IDs across gateways and replication. Never
-  deduplicate independent posts merely because their text matches.
-- Treat transport sender identities as gateway attestations. Do not imply
-  cryptographic authorship by the human user when the protocol does not prove it.
-- Keep per-packet UTF-8 limits, queues, retries, and persisted response cursors
-  bounded. A slow reader must not cause an unbounded transmission backlog.
-- Verify external API behavior from primary sources or installed dependency
-  code. Distinguish fake-radio tests, real local protocol tests, and RF tests.
-- Record material design decisions and reproducible operator commands in docs.
-- Run lint, typing, and relevant tests before committing; do not skip hooks.
-- Keep the SDK client until connection cleanup succeeds. Parent cancellation
-  must survive worker shutdown, and reconnects must reuse the airtime budget.
-- Run PTY/fork tests in a separate process: imported radio SDKs can leave
-  dispatcher threads alive even after individual connections have closed.
-- Web authors and editor permissions come from authenticated server records,
-  never request fields. Recheck revocation in the publication transaction.
-- Preserve an uncertain publication's operation and payload across retries.
-  Browser drafts must not overwrite another tab's newer saved text, and delayed
-  authentication responses must not replace a different current account.
-- Keep synchronous Playwright fixtures scoped to their test module so their
-  event loop closes before the asynchronous protocol tests run.
+Mesh BBS is a standalone Python service. Read [README.md](README.md) for the
+product and [docs/architecture.md](docs/architecture.md) for its data contracts.
+Keep documentation and examples consistent with the behavior you change.
+
+## Scope and workflow
+
+- Use Python 3.12+ and the locked uv environment. Keep storage and commands
+  independent of optional protocol SDKs; offline CLI use must still work.
+- Name new branches for their work, such as `fix/radio-reconnect`. Never create
+  or rename a branch with an `agent`, `codex`, or other assistant identity prefix.
+  An existing branch with such a prefix may be updated without renaming it.
+- Do not merge, publish releases, operate real radios, or change an installed
+  app's profile without user authorization. Honor authorization already given
+  for the task; use temporary profiles and emulators for ordinary tests.
+- Verify dependency behavior against installed code or primary documentation.
+  Report separately what unit tests, real protocol tests, and RF tests prove.
+- Run lint, typing, and relevant tests before committing. Preserve normal hooks.
+  Use [the development commands](docs/development.md) and check CI for the exact
+  commit pushed. Record operator commands and material decisions in the docs.
+
+## Data and identity
+
+- Commit each accepted operation together with its deduplication receipt.
+  Preserve permanent post, thread, and parent IDs through every adapter and sync.
+  Independent submissions remain distinct even when their text matches.
+- A transport address is a gateway-attested identity unless that transport
+  proves more. A host signature must not be presented as a human signature.
+- Keep removals, revision ordering, board grants, and originating-host checks
+  intact. News accepts automatic imports only, including for editor accounts.
+- Short `#N` reading numbers are local aliases. Never reuse or replicate them
+  as post identities. Keep alias allocation and notice consumption atomic.
+- Bound UTF-8 packets, input, queues, retries, and persisted response cursors.
+  Readers request pages; do not queue whole articles for a slow connection.
+
+## Connections and tests
+
+- Retain an SDK client until cleanup succeeds. Do not open a replacement while
+  the old connection might still be live. Parent cancellation must survive
+  worker shutdown, and reconnects must retain the persisted airtime budget.
+- Keep PTY/fork tests in a different process from radio SDK tests: SDK dispatcher
+  threads can outlive a connection. Scope synchronous Playwright fixtures to
+  their module so the loop closes before asynchronous protocol tests run.
+- Test with temporary databases, identities, and loopback interfaces. Do not
+  substitute a user's installed configuration for a test fixture.
+
+## Web writes
+
+- Derive author and permissions from authenticated server records, never request
+  fields. Recheck key revocation and board policy in the publication transaction.
+- Preserve an uncertain publication's operation ID and exact payload on retry.
+  A later error does not prove the first request failed to commit.
+- Browser drafts must not overwrite another tab's newer text. Delayed sign-in
+  responses must not replace a different current account.

@@ -448,7 +448,8 @@ async def test_sdk_channel_notice_uses_configured_secondary_channel_without_ack(
         packet = await asyncio.wait_for(radio.outgoing.get(), 5)
         assert packet.to == 0xFFFFFFFF and packet.channel == 1
         assert not packet.want_ack and not packet.decoded.want_response
-        assert f"read {post.post_id[:12]}; more" in packet.decoded.payload.decode()
+        assert "To read it, send me a private message: read #1" in packet.decoded.payload.decode()
+        assert store.get_post("#1").post_id == post.post_id
         assert not box.poll(time.time())
     finally:
         if adapter:
@@ -513,7 +514,7 @@ async def test_channel_help_on_meshtastic_points_to_the_same_dm_menu(tmp_path):
         )
         await adapter.start()
         await radio.text("help", 901, to=0xFFFFFFFF, channel=1)
-        assert "DM !aabbccdd with help. Pick a number" in await radio.response()
+        assert "Send !aabbccdd a private message: help" in await radio.response()
         await radio.text("help", 901, to=0xFFFFFFFF, channel=1)
         await radio.text("help", 902, to=0xFFFFFFFF, channel=0)
         assert "3 Write/resume" in await radio.command("help", 903)

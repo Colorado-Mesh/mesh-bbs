@@ -1,6 +1,18 @@
+import pytest
+
 from mesh_bbs.adapters.meshcore import channel_help_fingerprint
-from mesh_bbs.channel_help import HELP_INTERVAL, HELP_REPLAY_WINDOW, ChannelHelpGate
+from mesh_bbs.channel_help import HELP_INTERVAL, HELP_REPLAY_WINDOW, ChannelHelpGate, instructions
 from mesh_bbs.store import Store
+
+
+@pytest.mark.parametrize("name", ["coloradomesh.org-bbs", "!aabbccdd", "🌲" * 40])
+@pytest.mark.parametrize("budget", [64, 120, 139, 233])
+def test_help_explains_private_message_and_numbered_choices_within_one_packet(name, budget):
+    text = instructions(name, budget)
+    assert len(text.encode()) <= budget
+    assert "private message" in text or "Private-message" in text
+    assert "help\nChoose a number" in text
+    assert "next=" not in text and "menu=" not in text
 
 
 def payload(**changes):

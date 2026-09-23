@@ -75,6 +75,10 @@ class Menus:
             return self._home(state, budget)
         if word == "commands":
             return None
+        if re.fullmatch(r"read\s+#[1-9][0-9]{0,17}", word):
+            post = self.store.get_post(word.split()[1])
+            state["history"] = []
+            return self._read(actor, state, post.post_id, budget)
         if word == "boards":
             return self._boards(actor, state, budget)
         if word == "news":
@@ -332,6 +336,13 @@ class Menus:
             if post and post[0] == "news":
                 end = "\nEnd. News is read-only. back | menu"
         more = "\nnext=more | cancel" if preview else "\nnext=more | back | menu"
+        if not preview and budget >= 100:
+            more = "\nSend next to keep reading, or menu for options."
+            end = (
+                "\nEnd. News is read-only. Send menu for options."
+                if post and post[0] == "news"
+                else "\nEnd. Send reply to respond, or menu for options."
+            )
         if len((rest + end).encode()) <= budget:
             content, footer = rest, end
         else:

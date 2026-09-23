@@ -16,7 +16,8 @@ HELP = (
     "thread ID: replies\nnews: latest newsletter\nreply ID TEXT\n"
     "post BOARD TITLE | TEXT\n"
     "Long posts: new BOARD TITLE; add DRAFT N TEXT; preview DRAFT; publish DRAFT; discard DRAFT.\n"
-    "Replace BOARD with a board name, ID with a listed post ID, and DRAFT with your draft ID."
+    "Replace BOARD with a board name, ID with a listed post ID or this host's #number, "
+    "and DRAFT with your draft ID."
 )
 
 

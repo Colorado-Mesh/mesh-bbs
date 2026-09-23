@@ -1,72 +1,60 @@
-# Radio recovery and protocol verification
+# Radio recovery design and verification
 
-The first pilot tests called simulated SDK objects. They proved application
-contracts but did not exercise the real SDK handshake, framing, or callback
-timing. Runtime startup also awaited each radio once: a missing radio stopped
-web access and feed polling, while a later disconnect had no service-owned
-recovery path.
+Radio access must recover without making web reading or newsletter imports
+wait for a device. This behavior is implemented; this document records the
+contract and the regressions its tests protect.
 
-This improvement keeps one owner for each radio connection. The service will
-retry a missing or disconnected radio with bounded exponential backoff, keeping
-the same persisted airtime budget between connections. Web reading and feed
-polling remain available during a radio outage. Reticulum's process-wide runtime
-continues to have its separate lifecycle.
+## Connection ownership
 
-## Acceptance
+Each configured MeshCore or Meshtastic adapter has one supervisor. A missing
+or disconnected radio retries with bounded exponential backoff. A stable
+connection resets the wait. Shutdown interrupts retry waits and closes the
+client before its storage or budget disappears.
 
-- [x] Missing radios do not prevent web access or newsletter polling.
-- [x] A disconnected radio is closed before a replacement is created.
-- [x] Repeated failures back off; shutdown interrupts the retry wait.
-- [x] Reconnects preserve the persisted reply budget and application receipts.
-- [x] `/healthz` describes HTTP liveness; `/readyz` reports degraded configured
-      radio access without exposing device paths, peer addresses, or message text.
-- [x] Real MeshCore SDK connects to a TCP companion-protocol emulator and
-      completes publishing, idempotent retries, and reading.
-- [x] Real Meshtastic SDK connects to a protobuf TCP radio emulator and
-      completes the same command flow with bounded acknowledgement handling.
-- [x] Core review findings, if reproduced, have focused regression tests.
-Handoff requires full local checks and a passing current-commit CI run.
-The [main branch runs](https://github.com/Colorado-Mesh/mesh-bbs/actions/workflows/ci.yml)
-record that gate for each pushed commit.
+The adapter retains its SDK client until cleanup succeeds. A cleanup exception
+must not permit a replacement beside a possibly live old connection. Parent
+cancellation must survive worker shutdown, including SDK cleanup that consumes
+cancellation internally. Readiness changes before closure completes.
 
-The emulators implement host-to-radio wire protocols from the installed pinned
-SDKs. They are test peers, not firmware CPU emulators. They do not establish
-over-the-air delivery, RF airtime, regulatory compliance, or hardware coverage.
-Tests use temporary databases and loopback ports exclusively.
+Other protocols, web access, and feeds continue during a radio outage.
+Reticulum's process-wide runtime has its own lifecycle. Reconnects reuse the
+persisted airtime budget, cursors, drafts, and receipts; they never create a
+fresh allowance. Queued in-memory replies may be lost, so applications must
+retain safe operation/publication retries.
 
-## Verification
+## Health semantics
 
-Unit tests cover retry timing, repeated failures, cleanup, readiness transitions,
-and shutdown. Integration tests use real protocol libraries and byte streams to
-catch differences that a mocked SDK method cannot reveal. Existing three-host
-Reticulum integration, package installation, lint, typing, and distribution
-checks remain required. Independent review targets lost replies, stable thread
-references, dedupe, and trust boundaries.
+`/healthz` answers whether HTTP is alive. `/readyz` describes configured radio
+states and returns 503 while one is unavailable. Neither proves reception over
+the air or convergence between peers. A terminal failure requires investigating
+the cause; it should not prompt an endless restart loop that disrupts working
+interfaces. See [operations](operations.md#health-and-readiness).
 
-## Review findings addressed
+## Regression coverage
 
-Radio startup failures previously discarded the client reference before cleanup
-finished. A cleanup exception could then cause a replacement to open beside a
-still-live old connection. Adapters now retain that reference until closure
-succeeds, and the supervisor reports cleanup failures instead of retrying them.
+| Boundary | Test expectation |
+| --- | --- |
+| Initial connection | Missing radio does not prevent web/feed startup |
+| Reconnect | Old connection closes before replacement; waits back off |
+| Shutdown | Cancellation survives cleanup and interrupts waits |
+| Budget | Reconnect and restart retain debt and unfinished reservations |
+| Requests | Stable operation receipts survive loss of a response |
+| SDK protocol | Real SDK handshakes, framing, callbacks, and lost-ACK behavior work against loopback peers |
+| Discovery | Notice/help/adverts use bounded budgets and persistent cooldowns; uncertain sends do not become retry storms |
+| Reticulum announces | Scheduled deadlines survive restart; manual/startup announces do not defer them; failures leave later attempts running |
 
-Worker shutdown could also consume cancellation intended for the supervisor.
-Cancellation now propagates, and readiness changes before connection closure
-finishes. SDK cleanup that consumes cancellation cannot restart the radio.
+Additional regressions cover bounded draft-ID collision retries and starting an
+HTTP IP listener without a reverse-DNS lookup. Security dependency upgrades are
+checked against signed-event and real Reticulum tests. Intel macOS exercises
+native crypto compilation and the all-protocol installer in CI.
 
-A separate core audit reproduced a collision in the short random draft ID.
-Creation retries a bounded number of collisions while preserving the existing
-draft and its publication receipt.
+## Run and interpret the checks
 
-The web listener also bypasses the standard HTTP server's reverse-DNS lookup:
-an IP listener can start when name service is unavailable. Its regression test
-fails with the default listener and passes with the numeric address retained.
+Use the separate processes in [development](development.md). Simulated SDK
+contracts establish application decisions; wire emulators add real SDK framing
+and timing. They are not firmware CPU emulators, RF measurements, or evidence
+of licensed station operation. Tests use temporary databases and loopback ports.
 
-The dependency floor moves to cryptography 50, with 50.0.1 locked, to include
-the fix for [GHSA-g6cj-pr64-35w5](https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5).
-The affected PKCS#7 envelope decryption functions are not used in BBS, RNS, or
-LXMF code; signed-event and real Reticulum integration tests verify the upgrade.
-Because current cryptography wheels cover Apple Silicon only on macOS, Intel
-installs check native compiler, Rust, and OpenSSL prerequisites before installing.
-The CI matrix includes an Intel Mac source build and the real installer with
-every protocol extra. Linux and Apple Silicon retain the same install command.
+A field pilot still needs actual devices, agreed RF settings, measured upper
+packet estimates, busy-channel observation, and reconnect exercises. Record
+what was received at the other end, not merely what the SDK accepted locally.

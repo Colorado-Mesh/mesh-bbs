@@ -1,36 +1,42 @@
-# Copy this file and edit it before initializing your host.
-# Community IDs must match on hosts that exchange this community's boards.
-name = "Colorado Mesh / my-host"
+# Start with `mesh-bbs setup` and `mesh-bbs --region REGION configure`.
+# This file is the manual alternative. Replace paths and devices for your host.
+name = "Colorado Mesh BBS"
 region = "colorado-mesh"
 data_dir = "~/.local/share/mesh-bbs/colorado-mesh"
 boards = ["general", "news"]
-# MeshCore public keys or authenticated Reticulum LXMF destinations may be added.
-# Meshtastic node numbers are not sufficient to authorize official editors.
+# Region is fixed after initialization. Other hosts need the same region to sync,
+# but each needs its own data directory, signing key, and explicit peer grants.
+# Legacy editor identities do not override News: it accepts automatic imports only.
 editors = ["local:operator"]
 bind_host = "127.0.0.1"
 bind_port = 8080
-# For public RSS links, set the actual HTTP(S) origin readers use.
+# Remote posting needs HTTPS. Include the external port when it is non-default.
+# This sets origin checks and feed links; configure the proxy/TLS separately.
 # public_url = "https://bbs.example.org"
 
 [reticulum]
 enabled = false
-# Set a dedicated Reticulum config directory before enabling; it controls interfaces.
+# Required when enabled. Use a profile whose interfaces you intend the BBS to use.
+# Do not copy another running host's private transport identity.
 # config_dir = "~/.config/mesh-bbs/colorado-mesh/reticulum"
 
 [meshcore]
 enabled = false
+# Set either serial or TCP for a radio running companion firmware.
+# serial_port = "/dev/serial/by-id/YOUR-COMPANION"
+# tcp_host = "192.0.2.10"
+# tcp_port = 5000
 min_interval = 3.0
-# Bound estimated reply TX time, including all configured retries, per rolling window.
-# Calibrate packet_airtime_seconds for your modem/payload before community use.
+# Estimate one maximum packet for the actual modem. All retries reserve budget.
+# Ten seconds is conservative; choose a defensible estimate in the wizard.
 airtime_budget_seconds = 120.0
 airtime_window_seconds = 3600.0
 packet_airtime_seconds = 10.0
-# Use a companion radio. Choose serial or TCP, not both.
-# serial_port = "/dev/ttyUSB0"
-# tcp_host = "192.0.2.10"
-# tcp_port = 5000
+# Opt into a daily flood advert. Zero (the default) disables it.
 # advert_interval_seconds = 86400
-# Coordinate ONE designated BBS origin per overlapping RF mesh.
+# Coordinate ONE announcing BBS origin per protocol and overlapping radio mesh.
+# Set all three options together; omit them to disable notices and channel help.
+# Provision #bbs in the radio first. Slot numbers are local to each companion.
 # announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
 # announcement_channel = 1
 # announcement_channel_name = "#bbs"
@@ -38,39 +44,43 @@ packet_airtime_seconds = 10.0
 
 [meshtastic]
 enabled = false
+# Stock Meshtastic firmware, with serial or TCP access from this host.
+# serial_port = "/dev/serial/by-id/YOUR-MESHTASTIC"
+# tcp_host = "192.0.2.11"
+# tcp_port = 4403
 min_interval = 3.0
 airtime_budget_seconds = 120.0
 airtime_window_seconds = 3600.0
 packet_airtime_seconds = 10.0
-# Total possible firmware transmissions for each response, not additional retries.
+# Total possible firmware transmissions, including the first attempt.
 firmware_max_attempts = 4
-# serial_port = "/dev/ttyUSB1"
-# tcp_host = "192.0.2.11"
-# tcp_port = 4403
-# Coordinate one designated announcer; provision the secondary channel in the app.
+# Provision a secondary channel and PSK in the radio app; share its URL/QR.
+# Its name alone does not establish the key. The BBS does not provision it.
 # announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
 # announcement_channel = 1
 # announcement_channel_name = "BBS"
 # announcement_interval_seconds = 600
 
-# Colorado Mesh preset: full blog articles and published newsletter text sources.
-# For another community, replace this with its own feed or remove the entry.
-# Keep source_id identical on all hosts importing the same source.
+# Colorado's full blog feed and published newsletter text. Another community
+# can replace this source or remove it. Keep a source's ID and board identical
+# on every importing host so repeat imports converge on the same posts.
 [[feeds]]
 source_id = "colorado-mesh-blog"
 url = "https://blog.coloradomesh.org/feed.xml"
 board = "news"
 poll_seconds = 900
+# Only published issue links select their sibling YYYY-MM/draft.md text.
 newsletter_markdown_base_url = "https://raw.githubusercontent.com/Colorado-Mesh/advocacy/main/newsletter/issues/"
 
-# Exchange actual public keys and Reticulum addresses with a peer operator.
-# origin is SHA-256(raw Ed25519 public_key), encoded as 64 lowercase hex digits.
-# public_key is the raw 32-byte Ed25519 public key encoded as 64 hex digits.
-# RNS identity hashes are 32 hex digits. The sync destination is derived from them.
+# Prefer `peer export` / `peer add` to exchanging these values by hand.
+# Independently verify the full origin with the peer's operator before trusting it.
+# origin = SHA-256(raw Ed25519 public key), as 64 lowercase hex digits.
+# public_key = raw 32-byte public key, as 64 lowercase hex digits.
+# reticulum_identity = 32 hex digits, NOT the LXMF or NomadNet destination.
 # [[peers]]
 # origin = "REPLACE_WITH_PEER_ORIGIN"
 # public_key = "REPLACE_WITH_PEER_PUBLIC_KEY"
-# allowed_boards = ["general", "news"]
-# Use ["*"] only when trusting this peer for ALL current and future community boards.
 # reticulum_identity = "REPLACE_WITH_PEER_RNS_IDENTITY_HASH"
+# allowed_boards = ["general", "news"]
+# Use ["*"] to grant current AND future boards. Empty grants give no access.
 # can_moderate = false

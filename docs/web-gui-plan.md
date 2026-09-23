@@ -1,57 +1,56 @@
-# Web reading and posting
+# Standalone web interface
 
-The existing HTTP reader has plain links and requires radio commands to post.
-Build the standalone web interface first; Mesh Client integration is a later
-step. Every interface uses the same local posts, full identifiers and replication.
+The web interface is implemented in Mesh BBS. It serves the same local boards
+as radio and Reticulum users, with no Mesh Client dependency. This document
+records its design and maintenance requirements.
 
-## Design
+## Reading and composition
 
-A compact bulletin board: slate navigation, amber actions, a board sidebar and
-thread rows. Use locally available Trebuchet for controls and Charter/Georgia for
-long articles; no font downloads or frontend build step. Keep public pages server
-rendered and readable without JavaScript. Progressive enhancement adds sign-in,
-post/reply composition, previews and browser drafts. Mobile navigation wraps.
+Public pages are server-rendered and readable without JavaScript. The layout
+uses board navigation, thread rows, readable article text, and mobile wrapping.
+CSS and JavaScript ship in the Python package. Fonts come from the system;
+there is no frontend build or font download.
 
-## Posting and identity
+JavaScript adds sign-in, creating boards, writing posts and replies, previews,
+and browser drafts. Drafts stay local until explicit publication. News is
+read-only, including replies and editor accounts; automatic sources supply it.
+Community posts from the web use the same permanent IDs, parent references,
+and replication as posts from other interfaces.
 
-Operators issue individual access keys through `mesh-bbs web-access create`.
-The server stores hashes, never accepts a caller-supplied author, and rechecks
-revocation when publishing. Keys stay in tab session storage and travel only in
-Authorization headers. Public hosting requires HTTPS. Writes require a matching
-configured origin, JSON, bounded bodies and authenticated server-side board
-policy. No cookies or cross-origin API access. Newsletter roots require editor
-access; other contributors can reply. Identity remains separate across protocols.
+## Authentication and retry behavior
 
-Structured web posts use Store.publish's atomic event/receipt transaction.
-Browser drafts preserve their operation ID across refreshes and uncertain sends.
-The UI distinguishes local saving from later peer replication. Radio users gain
-`post BOARD TITLE | TEXT`, retaining multipart drafts for long messages.
+Operators issue individual bearer keys with `web-access create`. The server
+stores hashes and assigns author/permissions from authenticated records.
+Revocation is rechecked in the write transaction. Remote publication requires
+HTTPS and the exact configured origin. Requests use bounded JSON and an
+Authorization header, not authentication cookies or credentials in URLs.
 
-## Acceptance
+A key remains in tab session storage. Drafts remain in local storage and may
+outlive sign-out. Identities are separate across protocols; a web account does
+not prove ownership of a radio address.
 
-- [x] Responsive boards, readable threads, full posts, timestamps and transport labels.
-- [x] Accessible sign-in, new post, exact-parent reply, preview, drafts and clear errors.
-- [x] Authenticated web posts and radio posts appear in the same boards/threads.
-- [x] Contributor creation/revocation and newsletter permission enforcement.
-- [x] Refresh/retry dedupe; no author impersonation or cross-origin writes.
-- [x] XSS-safe rendering, strict body/field limits and bounded request handling.
-- [x] Package includes CSS/JS; public reading still works without JavaScript.
-- [x] Real browser desktop/mobile tests plus protocol/core regressions.
-- [x] Operator docs explain setup, key distribution and protocol command access.
+The draft retains a publication operation ID and payload through refreshes and
+uncertain responses. A later failed retry must not erase evidence that an earlier
+attempt might have committed. The server returns the original result for an
+exact retry. “Saved locally” describes local storage, not remote peer delivery.
 
-Handoff requires a passing [current-commit CI run](https://github.com/Colorado-Mesh/mesh-bbs/actions/workflows/ci.yml),
-including the dedicated Chromium job. Browser tests exercise the real HTTP server
-and SQLite using temporary identities. Protocol wire tests separately exercise
-the real radio SDKs against loopback emulators.
+## Regressions to preserve
 
-## Review regressions
+- Another tab's newer saved draft survives stale writes or deletion attempts.
+- Delayed authentication responses cannot replace a different current account.
+- Revoked credentials and client-supplied author fields cannot bypass policy.
+- Cross-origin writes, oversized input, and script-bearing content are rejected
+  or rendered safely at the appropriate boundary.
+- Exact-parent replies and partial threads remain readable when a root has not
+  arrived. Out-of-range peer timestamps do not break the page.
+- Sign-in, previews, retries, and publishing work at desktop and mobile widths.
+- Package installs contain the assets and can read public pages without JS.
 
-Retain a publication's operation and payload when a response is lost; an error
-from a later retry cannot prove the first attempt failed. Associate asynchronous
-authentication results with the key that initiated them. Check saved draft state
-before overwriting or deleting it, so another tab's newer text survives. Display
-partial threads even when their root has not arrived, and tolerate out-of-range
-peer timestamps. These cases have regression tests.
+Chromium tests use the real HTTP service and SQLite with temporary identities.
+[Development](development.md) explains how to run them. Radio SDK and Reticulum
+tests verify their separate access paths. Browser tests do not establish RF
+coverage or compatibility with every browser.
 
-No Mesh Client changes, PRs, releases or physical radio transmissions are part
-of this iteration. Push validated work directly to the authorized BBS repository.
+[Contributor access](operations.md#web-contributors-and-public-access) covers
+keys, HTTPS, Tailscale, and service configuration. A future Mesh Client screen
+would be a separate integration, not a prerequisite for this interface.

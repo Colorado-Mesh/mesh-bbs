@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 import stat
@@ -87,6 +88,9 @@ CREATE TABLE IF NOT EXISTS posts (
 );
 CREATE INDEX IF NOT EXISTS posts_board ON posts(board, created_at, post_id);
 CREATE INDEX IF NOT EXISTS posts_thread ON posts(thread_id, created_at, post_id);
+CREATE TABLE IF NOT EXISTS post_numbers (
+    number INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS receipts (
     actor TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL,
     result TEXT NOT NULL, PRIMARY KEY(actor, operation)
@@ -400,6 +404,15 @@ class Store:
             return Post(**json.loads(row[0]))
 
     def resolve_id(self, prefix: str) -> str:
+        if prefix.startswith("#"):
+            if not re.fullmatch(r"#[1-9][0-9]{0,17}", prefix):
+                raise BBSError("Use the post number from this BBS, for example read #7")
+            row = self.db.execute(
+                "SELECT post_id FROM post_numbers WHERE number=?", (int(prefix[1:]),)
+            ).fetchone()
+            if not row:
+                raise BBSError("Unknown post number on this BBS. Send help to browse.")
+            return str(row[0])
         if len(prefix) < 8 or len(prefix) > 64 or any(c not in "0123456789abcdef" for c in prefix):
             raise BBSError("Use a post ID of at least eight hexadecimal characters")
         if HEX_ID.fullmatch(prefix):
@@ -410,6 +423,21 @@ class Store:
         if len(rows) != 1:
             raise BBSError("Unknown or ambiguous post ID; use more characters")
         return str(rows[0][0])
+
+    def post_number(self, post_id: str) -> int:
+        """Return a permanent local reading shortcut without changing the synced ID."""
+        with self.transaction():
+            post = self.get_post(post_id)
+            row = self.db.execute(
+                "SELECT number FROM post_numbers WHERE post_id=?", (post.post_id,)
+            ).fetchone()
+            if row:
+                return int(row[0])
+            cursor = self.db.execute(
+                "INSERT INTO post_numbers(post_id) VALUES (?)", (post.post_id,)
+            )
+            assert cursor.lastrowid is not None
+            return cursor.lastrowid
 
     def list_posts(
         self, board: str, *, thread_id: str | None = None, limit: int = 50, after_id: str = ""

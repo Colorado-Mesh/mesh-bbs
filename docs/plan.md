@@ -1,107 +1,68 @@
-# Implementation plan
+# Project status and remaining work
 
-## Goal
+Mesh BBS serves a community's boards through several protocols while preserving
+post identity and reply relationships. Colorado Mesh newsletter delivery is the
+first deployment use case. Other communities can install the same service,
+choose their region, and explicitly pair trusted hosts.
 
-Build a dependable, extensible BBS for Colorado Mesh and other communities.
-Newsletter delivery is the first end-to-end use case. Users must be able to
-read and reply through different protocols while hosts synchronize the same
-posts without duplicate issues or replies pointing at unrelated messages.
+This file records scope and acceptance criteria. Installation commands belong
+in [installation](install.md); current behavior belongs in the linked guides.
 
-## Decisions
+## Implemented
 
-- Standalone Python service with SQLite per host; no Mesh Client dependency.
-- Optional protocol adapters wrap one shared command service.
-- Signed immutable events identify their originating host. The first federation
-  is explicitly trusted, with board grants configured by each operator.
-- Transport identities remain namespaced; display names never establish identity.
-- Feed source IDs and item IDs identify imported articles across failover hosts.
-- Radio browsing retrieves a bounded page at a time. Reading cursors pin a
-  revision; drafts use numbered parts and idempotent publication.
-- Public discovery channels do not carry complete newsletters.
-- Ham packet support uses a separate operator-managed cleartext gateway;
-  encrypted Reticulum federation is not implicitly authorized on amateur bands.
+| Area | Available behavior | Reference |
+| --- | --- | --- |
+| Storage | Signed events, stable IDs/parents, revisions, removals, atomic receipts, durable drafts | [Architecture](architecture.md) |
+| Reading and writing | Shared DM menus, community boards, long posts, replies, explicit safe retries, local notice shortcuts | [Commands](commands.md) |
+| News | RSS/Atom polling, published newsletter Markdown, full-text storage, correction dedupe, RSS export; import-only News | [Operations](operations.md#publish-newsletters) |
+| Reticulum | Explicit trusted peers, interrupted-sync recovery, LXMF commands, NomadNet pages and scheduled announces | [Community setup](community-setup.md) |
+| Radios | MeshCore companion and Meshtastic DMs, bounded queues/budgets, reconnects, designated channel notices/help | [Recovery design](reliability-plan.md) |
+| Web | Public reading, contributor keys, boards, posts/replies, previews, local drafts and retry protection | [Web design](web-gui-plan.md) |
+| Setup | One-line installer, region/connection wizard, public peer cards, example service, backup/recovery | [Installation](install.md) |
+| Packet access | Cleartext terminal session with explicit boards and optional community posting | [Transport integration](transports.md) |
 
-## Milestones and acceptance criteria
+The implementation uses stock companion/client firmware. A region is a
+namespace, not automatic federation membership. Hosts grant trust explicitly;
+transport identities remain separate from a person's display names.
 
-### 1. Repository and durable core
+## Acceptance criteria to preserve
 
-- [x] Reproducible Python environment, lint, typing, tests, package build, CI.
-- [x] Boards, posts, stable parent references, revisions, tombstones.
-- [x] Atomic acceptance and deduplication survive concurrent retries and restart.
-- [x] Persistent drafts and byte-bounded reading cursors.
-- [x] A CLI can initialize a host and demonstrate reading and publishing.
+- Retries and restarts must not publish a second copy of the same operation.
+  Identical independent submissions must remain distinct.
+- Replies must retain their original parent IDs through missing, reordered,
+  corrected, or removed content.
+- Hosts must converge after repeated bounded exchanges without trusting an
+  unknown origin merely because a known relay forwarded its event.
+- Browsing must stay within link budgets; reading a large article must not
+  enqueue the entire article over a public channel.
+- Radio outages must leave web reading and feed polling usable, while keeping
+  budgets and request receipts intact.
+- Setup must work for another community without copying Colorado private state
+  or requiring an assistant to edit config files.
 
-### 2. Newsletters
+## Evidence and limits
 
-- [x] RSS and Atom parse from bounded input with safe text conversion.
-- [x] Repeated imports create one issue; corrections retain its identity.
-- [x] Summary-only feeds are labeled; no promise of unavailable full text.
-- [x] Configured feed polling supports conditional requests and failure backoff.
-- [x] Web browsing and RSS export expose the same saved public posts.
-- [x] Official newsletter posting permissions differ from community replies.
+Core tests cover concurrent publication, process restart, permissions, feeds,
+deduplication, paging, and packet policy. Package tests exercise the installed
+CLI outside the source tree. Real SDK tests use loopback radio-protocol peers.
+Three-host Reticulum tests cover disconnection, reordered events, large UTF-8
+posts, retries, LXMF, and NomadNet with temporary identities. Chromium tests
+exercise the real HTTP service and store.
 
-### 3. Federation and Reticulum access
+See [development](development.md) for exact checks and the
+[current CI results](https://github.com/Colorado-Mesh/mesh-bbs/actions/workflows/ci.yml).
+These tests do not establish community-scale RF performance, every hardware
+combination, or amateur-station suitability. A single deployed host importing
+feeds does not demonstrate live multi-host federation.
 
-- [x] Trusted-peer inventory and missing-event transfer with signatures and limits.
-- [x] Three disconnected hosts converge after reordered/repeated exchanges.
-- [x] Missing parents and removal-before-create do not corrupt thread identity.
-- [x] NomadNet browsing and LXMF commands use the shared content and permissions.
-- [x] Real local Reticulum integration runs with isolated temporary profiles.
+## Follow-up work
 
-### 4. Radio adapters and operations
+Field pilots should measure delivery, airtime, lost responses, busy-channel
+behavior, and disconnect recovery on actual MeshCore and Meshtastic hardware.
+Operators should also rehearse restoring a backup and replacing an announcing
+host without duplicating channel notices.
 
-- [x] MeshCore companion DM adapter; no Room Server dependency.
-- [x] Meshtastic DM adapter; ignore channel broadcasts by default.
-- [x] Receive parsing, identity handling, payload limits, and retry behavior tested.
-- [x] Bounded transmission queues and conservative scheduling.
-- [x] Example configuration, service installation, backup and restore, health checks.
-- [x] Protocol plugin documentation and a cleartext packet gateway interface.
-
-### 5. Pilot readiness
-
-- [x] Installation smoke test from the built package.
-- [x] Security and architecture review findings addressed.
-- [x] Current-commit GitHub CI passes.
-- [x] Known limits, hardware pilot instructions, and remaining work documented.
-
-Actual MeshCore/Meshtastic RF coverage, traffic behavior under a busy community
-mesh, and licensed ham station operation require an operator-run field pilot.
-Local tests must never be described as field validation.
-
-## Research
-
-- https://github.com/markqvist/Reticulum
-- https://github.com/markqvist/LXMF
-- https://github.com/markqvist/NomadNet
-- https://github.com/meshcore-dev/meshcore_py
-- https://github.com/meshcore-dev/MeshCore/blob/main/docs/companion_protocol.md
-- https://meshtastic.org/docs/development/python/library/
-- https://www.rssboard.org/rss-specification
-- https://www.rfc-editor.org/rfc/rfc4287
-- https://docs.python.org/3/library/sqlite3.html
-
-## Validation evidence
-
-The tests exercise concurrent publication retries, process restart, out-of-order
-replication, removal and revision permissions, byte-limited reading, feed polling,
-terminal board policy, and persistent reply budgets. Wheel tests install outside
-the source tree and exercise initialization, newsletter publication, reading,
-and backup.
-
-The full Reticulum integration starts three independent hosts with temporary
-identities and real loopback links. It checks independently created posts,
-64 KiB UTF-8 content, stable reply parents, duplicate newsletter import,
-interrupted synchronization, signed LXMF commands and retries, restart, and
-NomadNet views. Radio adapters use simulated devices; no RF testing is claimed.
-
-Independent code review covered transaction boundaries, identity and board
-permissions, parsing, shutdown, and bounded work. Its findings have regression
-tests. Repository CI results are available in the Actions tab.
-
-The initial complete suite passed 517 tests locally. All six CI jobs passed on
-Linux and macOS, including the packaged CLI on Python 3.12, 3.13, and 3.14.
-The public installer was also tested in a temporary environment: all protocol
-dependencies installed, both community choices initialized correctly, and the
-installed service published and read a newsletter, served RSS, backed up its
-database, and shut down cleanly. These checks did not operate any radio or
-change an installed application profile.
+Native TNC/switch management, subscriptions, attachments, automatic PDF text
+extraction, and Mesh Client integration remain outside the implemented service.
+Add them only with explicit scope, bounded transport behavior, and tests of the
+identity and retry contracts above.

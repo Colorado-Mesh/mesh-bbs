@@ -307,3 +307,15 @@ def test_empty_or_unknown_allowlist_fails_closed(
 ) -> None:
     with pytest.raises(BBSError, match="public board"):
         session(service, "", boards=boards)
+
+
+def test_short_post_numbers_obey_terminal_board_policy(service: CommandService) -> None:
+    post = service.store.publish("local:operator", "hidden", "other", "Secret", "Hidden body")
+    number = service.store.post_number(post.post_id)
+    commands = f"@read read #{number}\nthread #{number}\nreply #{number} Forbidden"
+    frames = session(service, commands, allow_posts=True)
+    assert all(frame.startswith("Error:") for frame in frames[1:])
+    assert not any("Hidden body" in frame for frame in frames)
+    assert service.store.db.execute("SELECT count(*) FROM drafts").fetchone()[0] == 0
+    assert "Hidden body" in session(service, f"@read read #{number}", boards=("other",))[1]
+    assert "Hidden body" not in session(service, f"@read read #{number}")[1]

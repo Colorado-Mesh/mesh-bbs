@@ -1,13 +1,12 @@
-# Post and read over a message connection
+# Read and post by message
 
-Send commands to the configured BBS service. On MeshCore and Meshtastic, open a
-direct message to its companion node. On Reticulum, send an LXMF message to the
-host's advertised BBS address. The host operator supplies those addresses.
-MeshCore Room Servers and hashtag channels are not used for these commands.
+Open a private chat with the BBS companion on MeshCore or Meshtastic. For
+Reticulum, use the BBS's **LXMF messaging address**. Ask the operator for the
+contact if you cannot find it. The same menu works on all three protocols.
 
-## Start with the menu
+## Start here
 
-DM `help` on **MeshCore, Meshtastic, or Reticulum/LXMF**. The interaction is identical:
+Send `help`. The menu offers:
 
 ```text
 1 News & newsletters
@@ -15,83 +14,120 @@ DM `help` on **MeshCore, Meshtastic, or Reticulum/LXMF**. The interaction is ide
 3 Write/resume a post
 ```
 
-Reply with a displayed number. `next` gets another page, `back` returns to the
-previous list, and `menu` starts over. Numbers refer to the page you saw, even
-if new posts arrive meanwhile. Reading never automatically floods the channel.
+Send the number beside your choice. `next` requests another page, `back` returns
+to the previous list, and `menu` returns to the start. The bot sends one response
+per request. Menu numbers refer to the choices you saw, even when new posts
+arrive before you reply.
 
-To write, choose **3**, select a board or **Create a board**, send a title, then
-send the text in one or more messages. The bot saves each part and prompts you.
-Send `done` to review, `next` for more preview, then `publish`. Publication needs
-that explicit final message; repeating `publish` returns the same post. `add`
-returns from preview to add more text. `cancel` discards the draft. `menu` then
-**3** resumes it, including after the host restarts. Sessions are private to
-that transport address on that host; switching apps/addresses does not move a draft.
+In a configured discovery channel such as MeshCore `#bbs`, send exactly `help`
+for instructions to contact the BBS privately. Only the designated host answers,
+and public help replies are limited to one every five minutes. The channel is
+for discovery, not for posting or reading whole articles.
 
-When reading a community post, `reply` starts a reply draft and `replies` opens
-the conversation. **News is read-only for everyone, including editors and replies.**
-Colorado Mesh news comes from its configured automatic sources. Start a community
-thread to discuss an issue.
+## Open a channel notice
 
-Community board names use lowercase letters, numbers and hyphens (up to 64
-characters). The guided radio flow converts spaces to hyphens. There are at most
-32 boards per host and eight new boards per sender per day. Empty boards also
-replicate when operators explicitly trust peers for all community boards.
+A notice might say:
 
-Keep radio text messages short. A radio accepts at most 12 requests per sender
-per minute, and the operator's airtime allowance also applies. If a body-part
-confirmation is lost, blindly resending plain text can append it twice on
-MeshCore. For an uncertain link, use the numbered-part commands below: retries
-of an explicit part are safe. Meshtastic/LXMF transport retransmissions have
-request deduplication, but a manually resent message may be a new operation.
+```text
+New post in running:
+"mesh runners!"
+To read it, send me a private message: read #7
+```
 
-## Optional one-message posting
+Send **`read #7` to the node that sent the notice**. Send `next` when prompted
+to keep reading. This number stays attached to the same post after new arrivals
+and host restarts. It works across that host's protocols, but another BBS host
+may assign a different number. It is different from a temporary menu choice
+such as `1`.
 
-For a short post, send one message:
+A new-board notice asks you to send `boards`; choose the board from that menu.
+Old notices with hexadecimal IDs still work through `read ID` and `more`.
+
+## Write a post or create a board
+
+1. Send `help`, then `3`.
+2. Choose a board, or choose **Create a board** and send its name.
+3. Send your title.
+4. Send the post's text in one or more short messages. Each is saved in the draft.
+5. Send `done` to review. Use `next` if the preview spans several pages.
+6. Send `publish` to make it public. Repeating `publish` returns the same post.
+
+`add` returns from preview to writing. `cancel` discards the unpublished draft.
+To browse without losing it, send `menu`; choose `3` later to resume. Drafts
+survive a restart on that host. Switching apps, addresses, protocols, or hosts
+does not move your draft to a new identity.
+
+When reading a community post, `reply` starts a reply draft and `replies` shows
+the conversation. **News accepts automatic imports only.** Nobody can post or
+reply there, including editors. Start a thread on a community board to discuss
+an issue.
+
+Board names use lowercase letters, numbers, and hyphens, up to 64 characters.
+The guided flow converts spaces to hyphens. A host allows 32 boards and eight
+new boards per sender per day. New boards sync to peers that explicitly grant
+access to future boards.
+
+## If a response is missing
+
+Allow for radio delivery and the host's reply budget. A radio ACK is not a BBS
+publication receipt. The service accepts at most 12 requests per sender per
+minute, and an exhausted airtime budget can delay processing.
+
+For a draft, retrying `publish` is safe. Resending plain body text after a lost
+confirmation can append it twice, particularly on MeshCore, whose companion
+messages have no stable packet ID. For unreliable links, use the explicit
+operation IDs and numbered parts below. Do not interpret identical text as a
+safe retry identifier.
+
+## Explicit commands
+
+These are useful for scripts, packet sessions, and users who prefer commands.
+Send `commands` for the reference, then `more` to page through it.
+
+| Command | Result |
+| --- | --- |
+| `boards` | Board choices in a DM; a listing in a packet terminal |
+| `threads general` | Recent threads on `general` |
+| `read ID` | Open a post by full ID or an unambiguous hexadecimal prefix |
+| `read #7` | Open this host's permanent shortcut from a notice |
+| `thread ID` | List a conversation's posts and replies |
+| `news latest` | Open the latest saved newsletter |
+| `more` | Next page of an explicit-command response |
+| `post general Title | Text` | Publish a short post immediately |
+| `new general Title` | Create a multipart draft |
+| `add DRAFT 1 Text` | Save numbered part 1 |
+| `preview DRAFT` | Read the unpublished draft |
+| `publish DRAFT` | Publish once, or return its previous publication |
+| `discard DRAFT` | Remove an unpublished draft |
+| `reply ID Text` | Create a reply draft, still requiring publication |
+
+Replace `ID` and `DRAFT` with the identifiers returned by the bot. Each radio
+command must fit its packet: the MeshCore limit is 160 UTF-8 bytes including the
+command and operation ID. Meshtastic replies default to 160 bytes as well.
+Emoji and accented characters may consume several bytes each. A complete post
+can contain 64 KiB of UTF-8 text and a title up to 256 bytes.
+
+### Safe retries
+
+Prefix an explicit command with a unique `@operation-id`:
 
 ```text
 @meetup-1 post general Saturday meetup | Bring a radio. Meet at nine.
 ```
 
-The first `|` separates the title from the text. Later pipes belong to the text.
-The board, title, and text must all be present. `post` publishes immediately and
-returns a post ID; it does not create a draft. The confirmation says "Saved
-locally" because replication to other hosts happens separately.
+The first `|` separates title from body; later pipes are body text. This command
+publishes immediately. If its response is lost, resend the **exact command with
+the same ID to the same host from the same address**. The saved response is
+returned without another write. Changed content under that ID is rejected.
+Use a new ID for a new action. Equal text sent without an ID may create another
+post. “Saved locally” does not promise that another host has synced yet.
 
-Use a different `@operation-id` for each new command. If a confirmation is lost,
-resend the exact command with the same ID to the same host. The host returns its
-saved response without publishing again, including after a restart. IDs are
-scoped to the sender, so switching protocol identities or hosts is not a safe
-way to retry a write. Reusing an ID with changed text returns an error. Sending
-the same text without an operation ID can create another post.
+Give each page request its own ID too: `@page-1 read ID`, then `@page-2 more`.
+Repeating a request with its original ID returns the same page rather than
+advancing again. Native Meshtastic/LXMF retransmissions also have request
+receipts; a manual resend may be a new transport operation.
 
-All published community posts are public to readers of that board. News only
-accepts automatic imports.
-
-## Read a board or newsletter
-
-```text
-boards
-threads general
-read POST_ID
-more
-news latest
-thread POST_ID
-```
-
-Replace `POST_ID` with an ID from a listing or publication confirmation. `read`
-opens one post, while `thread` lists its replies. `more` requests the next page
-when a response ends with `[more]`. To retry a page safely, use a distinct ID for
-each page, such as `@page-1 read POST_ID`, then `@page-2 more`; repeat the same
-command and ID if that page's response is lost.
-
-## Longer posts and replies
-
-Every command must fit the current connection's UTF-8 byte limit. MeshCore
-allows 160 bytes, including the command and operation ID; multibyte characters
-use more than one byte. Keep messages short on Meshtastic as well. The service
-pages its radio replies and does not transmit a whole long post automatically.
-
-For text that needs several messages:
+### Multipart example
 
 ```text
 @cleanup-1 new general Saturday cleanup
@@ -101,28 +137,19 @@ preview DRAFT
 publish DRAFT
 ```
 
-Replace `DRAFT` with the identifier returned by `new`. Parts are numbered from
-one and joined with line breaks. Resending the same part number and text is
-safe. `publish DRAFT` returns the same post on repeated attempts. Drafts survive
-a restart of the same host. Use `discard DRAFT` to abandon an unpublished draft.
-
-To reply to an existing post:
+Replace `DRAFT` after the first response. Parts start at one and join with line
+breaks. Resending a part with the same number and text is safe. An explicit
+reply follows the same preview/publication steps:
 
 ```text
-@reply-1 reply POST_ID I'll be there.
+@reply-1 reply ID I'll be there.
 preview DRAFT
 publish DRAFT
 ```
 
-`reply` returns a draft ID, so the reply becomes public only after `publish`.
-Posts may contain up to 64 KiB of UTF-8 text and titles up to 256 bytes, but the
-individual radio messages used to build them must fit the connection.
+## Packet terminal
 
-## Packet terminal sessions
-
-The explicit commands above are available through an operator-configured packet terminal
-session (the numbered DM menu is not available there). Enter one command per line; `quit` ends the BBS session. Posting must
-be enabled by the operator with `--allow-posts`, and only its selected boards
-are available. Terminal sessions cannot publish official newsletter issues.
-See [packet terminal setup](transports.md#cleartext-packet-terminal) for the
-gateway launcher and required board selection.
+An operator-provided packet session uses the explicit commands, one per line;
+it does not enter the numbered DM menu. `quit` ends the BBS session. Posting
+requires the operator's `--allow-posts` setting, and every command is restricted
+to their selected boards. See [terminal integration](transports.md#cleartext-packet-terminal).

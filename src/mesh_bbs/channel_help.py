@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mesh_bbs.commands import byte_prefix, display_text
+from mesh_bbs.commands import display_text
 from mesh_bbs.store import Store
 
 HELP_INTERVAL = 300
@@ -50,8 +50,13 @@ class ChannelHelpGate:
 
 
 def instructions(address: str, max_bytes: int) -> str:
-    name = byte_prefix(" ".join(display_text(address).split()), 45)
-    text = f"BBS: DM {name} with help. Pick a number to read or write. next=more | menu=start"
-    if len(text.encode()) > max_bytes:
-        text = "BBS: DM this node with help. Reply with a menu number."
-    return text
+    name = " ".join(display_text(address).split())
+    explanation = "Choose a number to read posts, write a post, or create a board."
+    for text in (
+        f"Send {name} a private message: help\n{explanation}",
+        f"Send me a private message: help\n{explanation}",
+        "Private-message me: help\nChoose a number to read or write.",
+    ):
+        if len(text.encode()) <= max_bytes:
+            return text
+    raise ValueError("Channel packet is too small for help instructions")
