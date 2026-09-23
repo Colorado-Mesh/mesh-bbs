@@ -168,9 +168,9 @@ def run_configure(path: Path) -> None:
     while True:
         print(
             "1 MeshCore; 2 Meshtastic; 3 Reticulum/NomadNet; "
-            "4 Automatic news feed; 5 Web; 0 Save and finish"
+            "4 Automatic news feed; 5 Web; 6 Automatic updates; 0 Save and finish"
         )
-        option = choice("Setting", {"0", "1", "2", "3", "4", "5"}, "0")
+        option = choice("Setting", {"0", "1", "2", "3", "4", "5", "6"}, "0")
         if option == "0":
             break
         try:
@@ -201,6 +201,10 @@ def run_configure(path: Path) -> None:
                     )
                 )
                 config = replace(config, feeds=feeds)
+            elif option == "6":
+                print("Updates follow main after CI passes. Each update briefly restarts the BBS.")
+                enabled = choice("Enable automatic updates? y/n", {"y", "n"}, "n") == "y"
+                config = replace(config, auto_update=enabled)
             elif option == "5":
                 port = number("Local web port", config.bind_port, 1, 65535)
                 url = _ask("Public HTTPS URL (none for local-only)", config.public_url or "none")

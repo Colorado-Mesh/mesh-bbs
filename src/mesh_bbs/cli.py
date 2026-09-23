@@ -9,11 +9,12 @@ import json
 import logging
 import sqlite3
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from mesh_bbs import __version__
 from mesh_bbs.commands import CommandService
-from mesh_bbs.config import HostConfig, default_config_path, load_config
+from mesh_bbs.config import HostConfig, default_config_path, load_config, update_config
 from mesh_bbs.events import MAX_BODY_BYTES
 from mesh_bbs.store import Grant, Store
 
@@ -44,7 +45,12 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("init", help="Create this host's database and print its public identity")
     commands.add_parser("doctor", help="Check the database and enabled dependencies")
-    commands.add_parser("serve", help="Serve the web reader and explicitly enabled transports")
+    serve = commands.add_parser("serve", help="Serve the web reader and enabled transports")
+    update_mode = serve.add_mutually_exclusive_group()
+    update_mode.add_argument("--auto-update", action="store_true", help="Follow CI-passing main")
+    update_mode.add_argument("--no-auto-update", action="store_true", help=argparse.SUPPRESS)
+    updates = commands.add_parser("updates", help="Enable, disable, or inspect automatic updates")
+    updates.add_argument("update_action", choices=("enable", "disable", "status", "check", "reset"))
     command = commands.add_parser("command", help="Use the same text commands as radio users")
     command.add_argument("text")
     command.add_argument("--actor", default="local:operator")
@@ -116,10 +122,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         expected_config = config_path.read_bytes()
         config = load_config(config_path)
-        if args.action == "serve":
-            from mesh_bbs.runtime import serve
+        if args.action == "updates":
+            from mesh_bbs.updates import update_command
 
-            asyncio.run(serve(config))
+            return update_command(args.update_action, config_path, config, expected_config)
+        if args.action == "serve":
+            if args.auto_update and not config.auto_update:
+                config = replace(config, auto_update=True)
+                update_config(config, config_path, expected_config)
+            if not args.no_auto_update and (
+                config.auto_update or (config.data_dir / "updates" / "state.json").exists()
+            ):
+                from mesh_bbs.updates import supervise
+
+                return supervise(config_path, config)
+            from mesh_bbs.runtime import serve
+            from mesh_bbs.updates import service_lock
+
+            with service_lock(config):
+                asyncio.run(serve(config))
             return 0
         store = open_store(config)
         try:

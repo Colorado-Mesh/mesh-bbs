@@ -81,6 +81,13 @@ Use standard MeshCore companion or Meshtastic firmware. The BBS needs neither
 custom firmware, MeshCore Room Servers, nor Mesh Client. An operator-managed
 [packet terminal](docs/transports.md#cleartext-packet-terminal) is also available.
 
+## Automatic updates
+
+To follow new main commits after CI passes, run `mesh-bbs --region colorado-mesh updates enable` and restart the host. Setup also offers **6 Automatic updates**.
+Updates prepare a separate installation while the BBS runs, then briefly restart
+it. [The updater guide](docs/updates.md) covers status, disabling updates,
+snapshots, and recovery. Existing hosts stay opted out.
+
 ## Documentation
 
 | I want to… | Guide |
@@ -89,6 +96,7 @@ custom firmware, MeshCore Room Servers, nor Mesh Client. An operator-managed
 | Install or update the application | [Installation](docs/install.md) |
 | Start another community or pair hosts | [Community setup](docs/community-setup.md) |
 | Run a service, use Tailscale, back up, or diagnose a connection | [Operations](docs/operations.md) |
+| Enable automatic updates or recover a failed update | [Updates](docs/updates.md) |
 | Edit configuration by hand | [Annotated configuration](examples/config.toml) |
 | Understand identity, deduplication, and replication | [Architecture](docs/architecture.md) |
 | Add a transport or packet gateway | [Transport integration](docs/transports.md) |

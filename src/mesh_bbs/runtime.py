@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 import time
 from collections.abc import Callable
@@ -42,6 +43,13 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
     web: ReadOnlyWebServer | None = None
     loop = asyncio.get_running_loop()
     announce_signal: signal.Signals | None = None
+    supervised = os.environ.get("MESH_BBS_SUPERVISED") == "1"
+    booted = False
+
+    def parent_closed() -> None:
+        if not os.read(0, 1):
+            loop.remove_reader(0)
+            stop.set()
 
     async def in_worker(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
@@ -67,6 +75,8 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
         )
 
     try:
+        if supervised:
+            loop.add_reader(0, parent_closed)
         for name, radio, adapter, port, options in (
             (
                 "meshcore",
@@ -128,6 +138,7 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
             config.bind_port,
             readiness=partial(radio_readiness, radios),
             access=WebAccess(store, config.editors),
+            health_instance=lambda: os.environ.get("MESH_BBS_INSTANCE") if booted else None,
         )
         web.start()
         peer_boards = {
@@ -227,8 +238,12 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
         for signum in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(signum, stop.set)
         logger.info("%s serving region %s at %s", config.name, config.region, base_url)
+        booted = True
         await stop.wait()
     finally:
+        booted = False
+        if supervised:
+            loop.remove_reader(0)
         if announce_signal is not None:
             loop.remove_signal_handler(announce_signal)
         for task in tasks:

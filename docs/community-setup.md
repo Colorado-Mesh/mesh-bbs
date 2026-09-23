@@ -61,6 +61,11 @@ create boards and posts. Radio and LXMF users send `help` to the BBS for the sam
 numbered menu. Share the correct address for each protocol; an LXMF messaging
 address, NomadNet node address, and federation identity are different things.
 
+The connection wizard also offers **6 Automatic updates**. It is off by default.
+Enable it to follow new application commits once CI passes; all communities
+use the same [updater and recovery commands](updates.md). Posts and identities
+stay in their existing data directory.
+
 ## Keep discovery channels quiet
 
 Choose **one announcing host per protocol in each overlapping radio mesh**.

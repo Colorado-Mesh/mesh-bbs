@@ -10,6 +10,10 @@ boards = ["general", "news"]
 editors = ["local:operator"]
 bind_host = "127.0.0.1"
 bind_port = 8080
+# Opt in to CI-approved main updates; each successful update briefly restarts serve.
+# See docs/updates.md for status, snapshots, disable, and recovery.
+auto_update = false
+update_interval_seconds = 900
 # Remote posting needs HTTPS. Include the external port when it is non-default.
 # This sets origin checks and feed links; configure the proxy/TLS separately.
 # public_url = "https://bbs.example.org"

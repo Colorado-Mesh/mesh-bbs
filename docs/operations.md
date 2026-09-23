@@ -374,6 +374,13 @@ host needs a new identity. Losing that identity requires re-pairing with peers.
 Logs can contain addresses, identifiers, and connection errors. Redact private
 keys, subscription secrets, and message content before sharing diagnostics.
 
+## Automatic updates
+
+[Enable the updater](updates.md) to follow CI-approved pushes without rerunning
+the installer yourself. Preparation leaves the current service running; the
+final switch briefly restarts it. Check `updates status` and the service logs.
+SIGUSR1 announce requests are forwarded to the live Reticulum child.
+
 ## Troubleshooting checklist
 
 | Symptom | Check |

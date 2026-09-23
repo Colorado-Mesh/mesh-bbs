@@ -103,9 +103,16 @@ and [build instructions](https://cryptography.io/en/latest/installation/#buildin
 
 ## Update or uninstall
 
+For automatic updates after successful main-branch CI, choose **6 Automatic
+updates** in connection setup, or run `mesh-bbs --region colorado-mesh updates enable`
+and restart the service. See [automatic updates](updates.md) for status, disabling
+updates, and recovery. The default remains manual.
+
 Back up the host, stop its service, rerun the installer with the chosen ref and
 `--no-setup`, then start it and check `/readyz`. Application updates retain config
-and data. Follow [backup and recovery](operations.md#back-up-and-recover) before
+and data. If automatic updates have selected a cached installation, follow
+[manual version recovery](updates.md#storage-and-recovery), including the stopped
+service reset step, to select a manually installed ref. Follow [backup and recovery](operations.md#back-up-and-recover) before
 changing versions; restoring an older executable may also require restoring its
 matching data snapshot.
 

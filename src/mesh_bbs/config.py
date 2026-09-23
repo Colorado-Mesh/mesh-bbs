@@ -218,9 +218,13 @@ class HostConfig:
     bind_host: str = "127.0.0.1"
     bind_port: int = 8080
     public_url: str | None = None
+    auto_update: bool = False
+    update_interval_seconds: int = 900
 
     def __post_init__(self) -> None:
         _text(self.name, "host name")
+        _boolean(self.auto_update, "auto_update")
+        _integer(self.update_interval_seconds, "update interval", 300, 86400)
         if self.meshtastic.advert_interval_seconds:
             raise ValueError("advert_interval_seconds is only supported for MeshCore")
         if (
@@ -330,6 +334,8 @@ def load_config(path: Path) -> HostConfig:
             "bind_host",
             "bind_port",
             "public_url",
+            "auto_update",
+            "update_interval_seconds",
         },
         "configuration",
     )
@@ -414,6 +420,8 @@ def load_config(path: Path) -> HostConfig:
         bind_host=data.get("bind_host", "127.0.0.1"),
         bind_port=data.get("bind_port", 8080),
         public_url=data.get("public_url"),
+        auto_update=data.get("auto_update", False),
+        update_interval_seconds=data.get("update_interval_seconds", 900),
     )
 
 
@@ -439,6 +447,8 @@ def config_text(config: HostConfig) -> str:
         "bind_host",
         "bind_port",
         "public_url",
+        "auto_update",
+        "update_interval_seconds",
     ):
         value = getattr(config, key)
         if value is not None:

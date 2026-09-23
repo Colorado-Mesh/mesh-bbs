@@ -45,6 +45,16 @@ Keep documentation and examples consistent with the behavior you change.
 - Test with temporary databases, identities, and loopback interfaces. Do not
   substitute a user's installed configuration for a test fixture.
 
+## Automatically updated hosts
+
+- A passing main push can deploy to opted-in hosts. Preserve compatibility with
+  the previous config, database schema, and supervisor startup flags. Breaking
+  migrations need an explicit operator upgrade path.
+- Stage exact commits with locked dependencies. Keep the live process running
+  during preparation, and never start two children with the same identity.
+- Roll back application selection without restoring an old database over newer
+  posts. Keep snapshots private and installation/snapshot retention bounded.
+
 ## Web writes
 
 - Derive author and permissions from authenticated server records, never request

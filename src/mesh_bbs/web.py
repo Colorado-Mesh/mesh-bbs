@@ -142,6 +142,7 @@ def _handler(
     readiness: Readiness | None,
     access: WebAccess | None = None,
     allowed_origins: tuple[str, ...] = (),
+    health_instance: Callable[[], str | None] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "MeshBBS"
@@ -254,7 +255,14 @@ def _handler(
                         return
                     after_id = query[0][1]
                 if path == "/healthz":
-                    self._send(200, "application/json; charset=utf-8", b'{"status":"ok"}\n')
+                    health = {"status": "ok"}
+                    if health_instance and (instance := health_instance()):
+                        health["instance"] = instance
+                    self._send(
+                        200,
+                        "application/json; charset=utf-8",
+                        (json.dumps(health, separators=(",", ":")) + "\n").encode(),
+                    )
                     return
                 if path == "/readyz":
                     ready, report = readiness() if readiness else (True, {"status": "ready"})
@@ -416,6 +424,7 @@ class ReadOnlyWebServer:
         *,
         readiness: Readiness | None = None,
         access: WebAccess | None = None,
+        health_instance: Callable[[], str | None] | None = None,
     ) -> None:
         if not isinstance(host, str) or not host or len(host) > 255:
             raise ValueError("A valid bind address is required")
@@ -424,6 +433,7 @@ class ReadOnlyWebServer:
         self.views, self.host, self.port = views, host, port
         self._readiness = readiness
         self._access = access
+        self._health_instance = health_instance
         self._server: _Server | None = None
         self._thread: threading.Thread | None = None
 
@@ -444,6 +454,7 @@ class ReadOnlyWebServer:
             self._readiness,
             self._access,
             _write_origins(self.views.base_url, (str(bound_host), int(bound_port))),
+            self._health_instance,
         )
         thread = threading.Thread(
             target=server.serve_forever,
