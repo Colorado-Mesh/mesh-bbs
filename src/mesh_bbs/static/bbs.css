@@ -140,3 +140,10 @@ pre { background: #eef3f6; border-left: 3px solid #819aab; padding: 18px; overfl
   .site-footer { padding: 18px; }
   .site-footer a { display: block; float: none; margin-top: 5px; }
 }
+
+/* Micron posts preserve author line breaks and keep formatting inside the article. */
+.micron-line { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.5em; }
+.micron-center { text-align: center; }
+.micron-right { text-align: right; }
+.micron-left { text-align: left; }
+#post-format { display: block; margin: .5rem 0; padding: .5rem; font: inherit; }

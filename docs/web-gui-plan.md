@@ -54,3 +54,10 @@ coverage or compatibility with every browser.
 [Contributor access](operations.md#web-contributors-and-public-access) covers
 keys, HTTPS, Tailscale, and service configuration. A future Mesh Client screen
 would be a separate integration, not a prerequisite for this interface.
+
+## Micron posts
+
+The composer offers Plain text or Micron. Signed-in preview uses the same server
+renderer as published posts. Formatting, links, and parsed hexadecimal colors
+render in the web reader; raw HTML remains escaped. The original source stays
+in the draft and signed post body. See [the formatting guide](micron.md).

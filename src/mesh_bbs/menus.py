@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from mesh_bbs.commands import byte_prefix, display_text
 from mesh_bbs.events import BBSError
+from mesh_bbs.micron import plain
 
 if TYPE_CHECKING:
     from mesh_bbs.commands import CommandService
@@ -308,7 +309,7 @@ class Menus:
         state.update(view="read", post=post.post_id)
         self.store.db.execute(
             "INSERT OR REPLACE INTO cursors VALUES (?,?,0,?)",
-            (actor, display_text(post.title + "\n" + post.body), post.revision_id),
+            (actor, display_text(post.title + "\n" + plain(post.body)), post.revision_id),
         )
         return self._page(actor, budget)
 
@@ -319,7 +320,7 @@ class Menus:
         state["view"] = "preview"
         self.store.db.execute(
             "INSERT OR REPLACE INTO cursors VALUES (?,?,0,?)",
-            (actor, display_text("DRAFT: " + row["title"] + "\n" + body), "draft"),
+            (actor, display_text("DRAFT: " + row["title"] + "\n" + plain(body)), "draft"),
         )
         return self._page(actor, budget, preview=True)
 

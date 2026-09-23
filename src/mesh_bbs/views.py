@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
+from mesh_bbs import micron
 from mesh_bbs.events import BBSError
 from mesh_bbs.store import Post, Store
 
@@ -30,18 +31,11 @@ def _text(value: str) -> str:
 
 
 def _body_html(value: str) -> str:
-    return "<p>" + escape(_text(value)).replace("\n\n", "</p><p>").replace("\n", "<br>\n") + "</p>"
+    return micron.html(value)
 
 
 def _literal(value: str) -> str:
-    """Indent every literal line so user text cannot terminate Micron literal mode.
-
-    NomadNet's MicronParser toggles literal mode on an exact `` `= `` line,
-    even within a literal block. A leading space protects both that delimiter
-    and the parser's special ``\\`=`` display substitution without losing text.
-    Reference: markqvist/NomadNet, MicronParser.parse_line and make_output.
-    """
-    return "`=\n" + "\n".join(" " + line for line in _text(value).split("\n")) + "\n`=\n"
+    return micron.literal(value)
 
 
 def _micron_link(label: str, page: str, **variables: str) -> str:
@@ -132,6 +126,7 @@ class Views:
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<title>{title} | {name}</title><link rel="stylesheet" href="/assets/bbs.css">'
+            f'<style id="micron-colors">{micron.stylesheet(body)}</style>'
             '<script src="/assets/bbs.js" defer></script></head><body>'
             '<a class="skip-link" href="#content">Skip to content</a>'
             '<header class="masthead"><a class="brand" href="/">'
@@ -198,7 +193,7 @@ class Views:
             + "".join(
                 f'<li><a class="thread-title" href="/threads/{post.post_id}">'
                 f'{escape(_text(self._title(post)))}</a><p class="excerpt">'
-                f"{escape(_text(post.body[:160]))}</p>"
+                f"{escape(_text(micron.plain(post.body)[:160]))}</p>"
                 f'<div class="post-meta">{self._meta(post)}</div></li>'
                 for post in posts
             )
@@ -291,7 +286,7 @@ class Views:
         return self._html(title, body, board=selected.board)
 
     def _article(self, post: Post, *, full: bool = True) -> str:
-        text = post.body if full else post.body[:2000]
+        text = post.body if full or len(post.body) <= 2000 else micron.plain(post.body)[:2000]
         body = _body_html("This post was removed." if post.deleted else text)
         parent = (
             f'<a href="/posts/{post.parent_id}">In reply to {post.parent_id[:12]}</a>'
@@ -352,7 +347,7 @@ class Views:
         )
         body = f'<p class="compose-context">Posting to {context}</p>'
         if parent:
-            body += f"<blockquote>{escape(_text(parent.body[:300]))}</blockquote>"
+            body += f"<blockquote>{escape(_text(micron.plain(parent.body)[:300]))}</blockquote>"
         parent_value = parent.post_id if parent else ""
         title_value = escape(_text("Re: " + parent.title[:60])) if parent else ""
         body += (
@@ -361,6 +356,11 @@ class Views:
             '<p id="compose-access">Sign in with your contributor key to publish.</p>'
             '<label for="post-title">Title</label><input id="post-title" name="title" '
             f'maxlength="256" required value="{title_value}">'
+            '<label for="post-format">Format</label><select id="post-format">'
+            '<option value="text">Plain text</option><option value="micron">Micron</option>'
+            '</select><p class="hint">Micron uses &gt;Heading, `!bold`!, `*italic`*, '
+            "`_underline`_, and `[label`https://example.org]. Start the body with "
+            "#!micron to use it from a radio. The marker is saved with your post.</p>"
             '<label for="post-body">Message</label><textarea id="post-body" name="body" '
             'rows="13" required placeholder="Write your post. '
             'Long stories and newsletters belong here, too."></textarea>'
@@ -561,7 +561,9 @@ class Views:
                     )
                     for post in posts:
                         content += self._nomad_title(post) + self._nomad_meta(post)
-                        content += _literal("Removed post." if post.deleted else post.body[:240])
+                        content += _literal(
+                            "Removed post." if post.deleted else micron.plain(post.body)[:240]
+                        )
                         content += _micron_link("Read full post", "post", id=post.post_id)
                         content += "\n"
                     content += f"\nShowing up to {THREAD_LIMIT} posts per page, oldest first.\n"
@@ -575,7 +577,7 @@ class Views:
                     content += "\n" + self._nomad_title(selected) + self._nomad_meta(selected)
                     if selected.parent_id:
                         content += _micron_link("Parent post", "post", id=selected.parent_id)
-                    content += _literal(
+                    content += micron.nomad(
                         "This post was removed." if selected.deleted else selected.body
                     )
                     content += _literal(

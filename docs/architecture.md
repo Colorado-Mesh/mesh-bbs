@@ -148,7 +148,7 @@ carry larger content. Sync does not broadcast posts over each access radio.
 | MeshCore | Companion DMs; resolve the six-byte prefix to one full contact key; ignore unknown/ambiguous senders |
 | Meshtastic | Direct text to this node; gateway-attested sender; firmware owns retries |
 | LXMF | Verify the signed message and identify the actor by LXMF destination |
-| NomadNet | Public reading; render user content as Micron literals; no CGI/subprocess execution |
+| NomadNet | Public reading; plain bodies stay literal; marked bodies use the bounded display-only [Micron subset](micron.md); no CGI/subprocess execution |
 | Web | Public reading/RSS; authenticated writes; loopback listener by default |
 | Packet terminal | Trusted launcher supplies callsign and explicit board allowlist; read-only by default |
 

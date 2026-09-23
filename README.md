@@ -46,6 +46,11 @@ Send `read #7` to the node that posted the notice, then `next` when prompted.
 The number stays attached to that post on that host. For the full walkthrough,
 see [reading and posting](docs/commands.md).
 
+
+Posts can use [Micron formatting](docs/micron.md) in the web reader and NomadNet,
+with plain-text reading over the radio protocols. Choose Micron in the composer
+or start the body with `#!micron` from a radio.
+
 ## Run a host
 
 On Linux or macOS, install as your normal user. Intel Mac users need the
@@ -93,6 +98,7 @@ snapshots, and recovery. Existing hosts stay opted out.
 | I want to… | Guide |
 | --- | --- |
 | Read, post, reply, or recover a draft | [Commands](docs/commands.md) |
+| Format a post with headings, colors, and links | [Micron](docs/micron.md) |
 | Install or update the application | [Installation](docs/install.md) |
 | Start another community or pair hosts | [Community setup](docs/community-setup.md) |
 | Run a service, use Tailscale, back up, or diagnose a connection | [Operations](docs/operations.md) |

@@ -351,3 +351,42 @@ def test_contributor_creates_board_and_posts_while_news_stays_read_only(page, bb
     expect(page.get_by_role("link", name="New post", exact=True)).to_have_count(0)
     page.goto(bbs.base_url + "/posts/" + bbs.seeds["issue"].post_id)
     expect(page.get_by_role("link", name="Reply", exact=True)).to_have_count(0)
+
+
+def test_micron_draft_preview_publish_and_plain_radio_read(page, bbs):
+    page.goto(bbs.base_url + "/new/general")
+    sign_in(page, bbs)
+    page.get_by_label("Title", exact=True).fill("Formatted field note")
+    page.get_by_label("Format", exact=True).select_option("micron")
+    expect(page.get_by_label("Message", exact=True)).to_have_value("#!micron\n")
+    source = "#!micron\n>At the trail\n`!Bring water`!\n`Ff80Orange`f\n<script>alert(1)</script>"
+    page.get_by_label("Message", exact=True).fill(source)
+    page.reload()
+    expect(page.get_by_label("Format", exact=True)).to_have_value("micron")
+    page.get_by_role("button", name="Preview", exact=True).click()
+    expect(page.locator("#post-preview strong")).to_have_text("Bring water")
+    expect(page.locator("#post-preview span.micron-f-f80")).to_have_css("color", "rgb(255, 136, 0)")
+    assert page.locator("#post-preview script").count() == 0
+    page.get_by_role("button", name="Publish post", exact=True).click()
+    page.wait_for_url(re.compile(r".*/posts/[0-9a-f]{64}$"))
+    expect(page.locator(".post-body strong")).to_have_text("Bring water")
+    expect(page.locator(".post-body span.micron-f-f80")).to_have_css("color", "rgb(255, 136, 0)")
+    post_id = page.url.rsplit("/", 1)[1]
+    assert bbs.store.get_post(post_id).body == source
+    assert "Bring water" in bbs.service.handle("meshcore:reader", "read " + post_id)
+    assert "`!" not in bbs.service.handle("lxmf:reader", "read " + post_id)
+
+
+def test_switching_micron_off_preserves_source(page, bbs):
+    page.goto(bbs.base_url + "/new/general")
+    page.get_by_label("Message", exact=True).fill("Text with `!literal backticks`!")
+    page.get_by_label("Format", exact=True).select_option("micron")
+    expect(page.get_by_label("Message", exact=True)).to_have_value(
+        "#!micron\nText with `!literal backticks`!"
+    )
+    page.get_by_label("Format", exact=True).select_option("text")
+    expect(page.get_by_label("Message", exact=True)).to_have_value(
+        "Text with `!literal backticks`!"
+    )
+    page.reload()
+    expect(page.get_by_label("Format", exact=True)).to_have_value("text")

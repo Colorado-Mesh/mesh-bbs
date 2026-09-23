@@ -8,6 +8,7 @@ import time
 import unicodedata
 
 from mesh_bbs.events import MAX_BODY_BYTES, BBSError, stable_id
+from mesh_bbs.micron import plain
 from mesh_bbs.store import Store
 
 HELP = (
@@ -243,7 +244,7 @@ class CommandService:
         if verb == "preview":
             draft_row, body = self.store.draft(actor, arguments)
             return self._begin_page(
-                actor, f"Draft {arguments}: {draft_row['title']}\n{body}", "draft", budget
+                actor, f"Draft {arguments}: {draft_row['title']}\n{plain(body)}", "draft", budget
             )
         if verb == "publish":
             draft_row, _ = self.store.draft(actor, arguments)
@@ -270,7 +271,7 @@ class CommandService:
             return "This post has been removed."
         return self._begin_page(
             actor,
-            f"{post.post_id[:12]} {post.title}\n{post.body}",
+            f"{post.post_id[:12]} {post.title}\n{plain(post.body)}",
             post.revision_id,
             budget,
         )

@@ -6,6 +6,7 @@ import ipaddress
 import json
 import logging
 import re
+import secrets
 import socket
 import threading
 import time
@@ -17,6 +18,7 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
+from mesh_bbs import micron
 from mesh_bbs.events import SLUG, BBSError
 from mesh_bbs.views import Views
 from mesh_bbs.web_access import AccessDenied, WebAccess, WebUser
@@ -153,6 +155,15 @@ def _handler(
             pass  # Avoid recording reader post IDs, queries, or transport identities.
 
         def _send(self, status: int, content_type: str, body: bytes) -> None:
+            style_policy = "'self'"
+            if content_type.startswith("text/html"):
+                nonce = secrets.token_urlsafe(24)
+                style_policy += f" 'nonce-{nonce}'"
+                body = body.replace(
+                    b'<style id="micron-colors">',
+                    f'<style id="micron-colors" nonce="{nonce}">'.encode(),
+                    1,
+                )
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -161,13 +172,15 @@ def _handler(
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; "
+                f"default-src 'none'; style-src {style_policy}; "
+                "script-src 'self'; connect-src 'self'; "
                 "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
             )
             if status == 405:
                 methods = (
                     "POST"
-                    if access is not None and self.path in {"/api/posts", "/api/boards"}
+                    if access is not None
+                    and self.path in {"/api/posts", "/api/boards", "/api/preview"}
                     else "GET, HEAD"
                 )
                 self.send_header("Allow", methods)
@@ -329,7 +342,7 @@ def _handler(
             if access is None:
                 self.send_error(405)
                 return
-            if self.path not in {"/api/posts", "/api/boards"}:
+            if self.path not in {"/api/posts", "/api/boards", "/api/preview"}:
                 self._json(404, {"error": "Not Found"})
                 return
             try:
@@ -368,6 +381,17 @@ def _handler(
                 )
                 if not isinstance(payload, dict):
                     raise BBSError("Post body must be a JSON object")
+                if self.path == "/api/preview":
+                    body = payload.get("body")
+                    if (
+                        set(payload) != {"body"}
+                        or not isinstance(body, str)
+                        or len(body.encode()) > 65536
+                    ):
+                        raise BBSError("Preview requires a body up to 65,536 bytes")
+                    rendered = micron.html(body)
+                    self._json(200, {"html": rendered, "css": micron.stylesheet(rendered)})
+                    return
                 if self.path == "/api/boards":
                     board = access.create_board(user, payload)
                     self._json(201, {"status": "saved_locally", "board": board})

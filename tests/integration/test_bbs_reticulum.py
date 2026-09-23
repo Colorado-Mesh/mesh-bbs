@@ -395,14 +395,27 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         assert "board name" in dm("2")
         assert "title" in dm("hiking")
         assert "text" in dm("Trail report")
-        assert "saved" in dm("Trail is clear.")
-        assert "publish |" in dm("done")
+        assert "saved" in dm("#!micron")
+        assert "saved" in dm(">Conditions\n`!Trail is clear.`!")
+        preview = dm("done")
+        assert "publish |" in preview and "Trail is clear." in preview and "`!" not in preview
         assert "Posted to hiking" in dm("publish")
         for receiver, peer in ((alpha, "beta"), (gamma, "alpha")):
             assert receiver.call("pull", peer=peer)["completed_sweep"]
         shared = [node.call("snapshot")["posts"] for node in nodes.values()]
         assert shared[0] == shared[1] == shared[2]
-        assert any(p["board"] == "hiking" and p["body"] == "Trail is clear." for p in shared[0])
+        formatted = next(p for p in shared[0] if p["board"] == "hiking")
+        assert formatted["body"] == "#!micron\n>Conditions\n`!Trail is clear.`!"
+        reply = dm("read " + formatted["post_id"])
+        assert "Trail is clear." in reply and "`!" not in reply
+        formatted_page = gamma.call(
+            "page",
+            address=addresses["alpha"]["nomadnet"],
+            path="/page/post.mu",
+            variables={"var_id": formatted["post_id"]},
+        )
+        assert "`!Trail is clear." in formatted_page
+        assert "<``\n`=\n Post ID:" in formatted_page
         final = [node.call("snapshot") for node in nodes.values()]
         beta.stop()
         assert beta.process is not None and beta.process.returncode == 0, beta.log.read_text()

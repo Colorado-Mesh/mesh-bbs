@@ -457,3 +457,35 @@ def test_authenticated_board_creation_then_post_and_revocation(service):
     )
     access.revoke("alice")
     assert request(server, "/api/boards", method="POST", token=token, data=data)[0] == 401
+
+
+def test_micron_preview_requires_identity_and_origin_and_does_not_publish(service):
+    server, access, token = service
+    body = json.dumps({"body": "#!micron\n`!Hello`!\n<script>evil</script>"}).encode()
+    assert request(server, "/api/preview", method="POST", data=body)[0] == 401
+    assert (
+        request(
+            server,
+            "/api/preview",
+            method="POST",
+            token=token,
+            data=body,
+            headers={"Origin": "https://elsewhere.example"},
+        )[0]
+        == 403
+    )
+    status, _, response = request(server, "/api/preview", method="POST", token=token, data=body)
+    assert status == 200
+    markup = json.loads(response)["html"]
+    assert "<strong>Hello</strong>" in markup and "<script>" not in markup
+    assert not access.store.list_posts("general")
+    assert (
+        request(
+            server,
+            "/api/preview",
+            method="POST",
+            token=token,
+            data=json.dumps({"body": "x" * 65537}).encode(),
+        )[0]
+        == 400
+    )

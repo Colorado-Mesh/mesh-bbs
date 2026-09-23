@@ -71,6 +71,7 @@
     byId("publish").textContent = submitting ? "Saving…" : draft.pending ? "Retry publication" : "Publish post";
     byId("post-title").readOnly = Boolean(draft.pending);
     byId("post-body").readOnly = Boolean(draft.pending);
+    byId("post-format").disabled = Boolean(draft.pending) || draftConflict;
     byId("draft-clear").disabled = submitting || draftConflict || Boolean(draft.pending);
   };
 
@@ -88,6 +89,7 @@
       draft.body = byId("post-body").value;
       if (user && !draft.actor) draft.actor = user.actor;
     }
+    byId("post-format").value = draft.body.startsWith("#!micron\n") ? "micron" : "text";
     const bytes = new TextEncoder().encode(draft.body).length;
     byId("body-count").textContent = `${bytes.toLocaleString()} / 65,536 bytes`;
     byId("body-count").classList.toggle("error", bytes > 65536);
@@ -159,15 +161,40 @@
     byId("post-body").value = draft.body;
     byId("preview-toggle").hidden = false;
     byId("draft-clear").hidden = false;
-    form.addEventListener("input", saveDraft);
-    byId("preview-toggle").addEventListener("click", () => {
+    byId("post-format").addEventListener("change", () => {
+      if (draft.pending || draftConflict) return;
+      const body = byId("post-body");
+      if (byId("post-format").value === "micron" && !body.value.startsWith("#!micron\n")) body.value = "#!micron\n" + body.value;
+      else if (byId("post-format").value === "text" && body.value.startsWith("#!micron\n")) body.value = body.value.slice(9);
+      saveDraft();
+    });
+    form.addEventListener("input", (event) => { if (event.target.id !== "post-format") saveDraft(); });
+    let previewRequest = 0;
+    byId("preview-toggle").addEventListener("click", async () => {
       const preview = byId("post-preview");
-      preview.querySelector("div").textContent = byId("post-body").value || "Your message preview will appear here.";
+      const request = ++previewRequest;
       preview.hidden = !preview.hidden;
       byId("preview-toggle").textContent = preview.hidden ? "Preview" : "Hide preview";
+      if (preview.hidden) return;
+      const body = byId("post-body").value;
+      const output = preview.querySelector("div");
+      output.textContent = body || "Your message preview will appear here.";
+      if (!body.startsWith("#!micron\n")) return;
+      if (!user) { output.textContent = "Sign in to preview Micron formatting. Your draft is saved."; return; }
+      try {
+        const result = await api("/api/preview", { body });
+        // Only server-rendered, escaped markup enters the DOM. Never insert post source.
+        if (request === previewRequest && body === byId("post-body").value) {
+          byId("micron-colors").textContent = result.css;
+          output.innerHTML = result.html;
+        }
+      } catch (error) {
+        if (request === previewRequest) output.textContent = "Preview unavailable. Your draft is saved. " + error.message;
+      }
     });
     byId("draft-clear").addEventListener("click", () => {
       if (!confirm("Discard this browser draft?")) return;
+      previewRequest++;
       draft = fresh();
       byId("post-title").value = draft.title;
       byId("post-body").value = "";

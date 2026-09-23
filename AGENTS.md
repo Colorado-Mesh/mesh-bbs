@@ -63,3 +63,13 @@ Keep documentation and examples consistent with the behavior you change.
   A later error does not prove the first request failed to commit.
 - Browser drafts must not overwrite another tab's newer text. Delayed sign-in
   responses must not replace a different current account.
+
+## Post formatting
+
+- Micron is explicitly marked in the signed body. Preserve source during sync.
+- Render only the display subset in `micron.py`; never forward raw post markup
+  into NomadNet or HTML. Forms, partials, page directives, and field-bearing
+  links must stay inactive. Reset formatting before returning to host navigation.
+- HTML color stylesheets accept only hexadecimal color classes and require a
+  per-response CSP nonce. Radio cursors
+  use the plain-text view. Keep those boundaries covered by tests.

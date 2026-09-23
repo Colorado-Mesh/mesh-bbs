@@ -153,3 +153,9 @@ An operator-provided packet session uses the explicit commands, one per line;
 it does not enter the numbered DM menu. `quit` ends the BBS session. Posting
 requires the operator's `--allow-posts` setting, and every command is restricted
 to their selected boards. See [terminal integration](transports.md#cleartext-packet-terminal).
+
+## Formatted posts
+
+See [Micron formatting](micron.md) for headings, emphasis, colors, links, and
+literal blocks. The original source syncs between hosts; radio readers receive
+plain text. News remains reserved for automatic imports.
