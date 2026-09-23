@@ -28,7 +28,7 @@ def test_setup_prints_runnable_web_start_steps_without_creating_keys(
     parsed = []
     for label, expected in (
         ("Next: ", "init"),
-        ("Create your editor key: ", "web-access"),
+        ("Create your contributor key: ", "web-access"),
         ("Start the host: ", "serve"),
     ):
         command = next(line.removeprefix(label) for line in lines if line.startswith(label))
@@ -39,7 +39,7 @@ def test_setup_prints_runnable_web_start_steps_without_creating_keys(
         assert options.config == target
         parsed.append(options)
     assert parsed[1].access_action == "create"
-    assert parsed[1].name == "alice" and parsed[1].editor
+    assert parsed[1].name == "alice" and not parsed[1].editor
     assert "Sign in: http://127.0.0.1:8080/connect" in lines
     assert "Setup has not created an access key or started the host." in lines
     config = load_config(target)
