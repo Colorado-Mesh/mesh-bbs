@@ -246,6 +246,25 @@ the schedule. An uncertain result waits until the next interval rather than
 immediately flooding again. The companion's OK response confirms acceptance of
 the command, not reception by another node. Meshtastic does not use this option.
 
+## Announce an already running Reticulum service
+
+On a systemd installation, send a manual announce without restarting readers,
+radio connections, or the web service:
+
+```sh
+sudo systemctl kill --kill-who=main --signal=SIGUSR1 mesh-bbs.service
+```
+
+This requires a Mesh BBS version that supports SIGUSR1 and enabled Reticulum.
+For a foreground instance on Linux or macOS, `kill -USR1 BBS_PID` does the same.
+Manual requests are limited to once per minute. Automatic NomadNet, LXMF, and
+sync announces run every **30 minutes**. The scheduled deadline survives restarts;
+startup and manual announcements do not postpone it. A failed announce is logged
+and does not stop future scheduled attempts. Logs confirm local submission,
+not delivery to every reader. Relays can delay or suppress repeated announces,
+so an old "last seen" time does not by itself mean the page is unreachable.
+Path responses also carry the configured NomadNet display name.
+
 ## Pair community hosts
 
 Use `mesh-bbs configure` for connection and feed setup, then `peer export` and

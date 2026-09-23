@@ -89,6 +89,9 @@ async def main():
                 identity, RNS.Destination.OUT, RNS.Destination.SINGLE, app, aspect)
 
         pages = await destination(peer_addresses["nomadnet"], "nomadnetwork", "node")
+        # This client starts after the server's startup announce, so discovery
+        # relies on a path response. It must still include the NomadNet name.
+        assert RNS.Identity.recall_app_data(pages.hash) == b"Isolated BBS"
         link = RNS.Link(pages)
         try:
             async with asyncio.timeout(15):

@@ -17,9 +17,12 @@ import re
 import signal
 import stat
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from mesh_bbs.advertisements import AdvertSchedule
 
 if TYPE_CHECKING:
     from .base import IncomingMessage
@@ -165,6 +168,7 @@ class ReticulumAdapter:
         self._sync: Any = None
         self._links: set[Any] = set()
         self._peer_locks = {peer: asyncio.Lock() for peer in self.trusted_peers}
+        self._announce_schedule = AdvertSchedule(self.state_dir / "announce-schedule.json")
 
     @property
     def identity_hash(self) -> str:
@@ -215,6 +219,7 @@ class ReticulumAdapter:
                 self._identity, display_name=self.name
             )
             self._pages = self._destination("nomadnetwork", "node")
+            self._pages.set_default_app_data(self.name.encode("utf-8"))
             self._pages.set_max_request_size(8192)
             for path in PAGE_PATHS:
                 self._pages.register_request_handler(
@@ -235,7 +240,7 @@ class ReticulumAdapter:
                 asyncio.create_task(self._identity_worker()),
                 asyncio.create_task(self._announcements()),
             ]
-            self.announce()
+            self._startup_announce()
         except BaseException:
             await self.stop()
             raise
@@ -255,11 +260,31 @@ class ReticulumAdapter:
         self._router.announce(self._source.hash)
         self._pages.announce(app_data=self.name.encode("utf-8"))
         self._sync.announce()
+        LOG.info("Reticulum announces submitted for %s (NomadNet, LXMF, sync)", self.name)
+
+    def _startup_announce(self) -> None:
+        now = time.time()
+        delay = self._announce_schedule.delay(now, self.announce_interval)
+        if not delay:
+            self._announce_schedule.mark_attempt(now)
+        self.announce()
+        LOG.info(
+            "Next scheduled Reticulum announce in %.0f seconds",
+            self._announce_schedule.delay(now, self.announce_interval),
+        )
 
     async def _announcements(self) -> None:
         while True:
-            await asyncio.sleep(self.announce_interval)
-            self.announce()
+            try:
+                delay = self._announce_schedule.delay(time.time(), self.announce_interval)
+                if delay:
+                    await asyncio.sleep(min(delay, 60))
+                    continue
+                self._announce_schedule.mark_attempt(time.time())
+                self.announce()
+            except Exception:
+                LOG.exception("Scheduled Reticulum announce failed")
+                await asyncio.sleep(60)
 
     async def drain(self) -> None:
         """Wait for admitted commands and their transport replies to finish."""

@@ -41,6 +41,7 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
     workers: set[asyncio.Task[Any]] = set()
     web: ReadOnlyWebServer | None = None
     loop = asyncio.get_running_loop()
+    announce_signal: signal.Signals | None = None
 
     async def in_worker(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
@@ -153,6 +154,23 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
             await reticulum.start()
             adapters.append(reticulum)
             logger.info("Reticulum addresses: %s", reticulum.addresses)
+            last_manual_announce: float | None = None
+
+            def announce_now() -> None:
+                nonlocal last_manual_announce
+                now = loop.time()
+                if last_manual_announce is not None and now - last_manual_announce < 60:
+                    logger.info("Manual Reticulum announce skipped: one-minute cooldown")
+                    return
+                last_manual_announce = now
+                try:
+                    reticulum.announce()
+                except Exception:
+                    logger.exception("Manual Reticulum announce failed")
+
+            if hasattr(signal, "SIGUSR1"):
+                loop.add_signal_handler(signal.SIGUSR1, announce_now)
+                announce_signal = signal.SIGUSR1
 
             async def sync_loop() -> None:
                 while True:
@@ -211,6 +229,8 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
         logger.info("%s serving region %s at %s", config.name, config.region, base_url)
         await stop.wait()
     finally:
+        if announce_signal is not None:
+            loop.remove_signal_handler(announce_signal)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

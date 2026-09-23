@@ -1,4 +1,4 @@
-"""Durable spacing for explicitly enabled MeshCore flood advertisements."""
+"""Durable spacing for scheduled advertisements and service announcements."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class AdvertSchedule:
                 raise ValueError("Invalid advertisement timestamp")
             self.last_attempt = float(value)
 
-    def delay(self, now: float, interval: int) -> float:
+    def delay(self, now: float, interval: float) -> float:
         return max(0.0, self.last_attempt + interval - now)
 
     def mark_attempt(self, now: float) -> None:

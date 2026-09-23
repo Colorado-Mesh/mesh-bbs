@@ -207,6 +207,61 @@ async def test_start_requires_explicit_config_without_creating_profile(tmp_path:
     assert not service.state_dir.exists()
 
 
+async def test_periodic_announces_keep_half_hour_deadline_across_restart_and_manual_send(
+    tmp_path, monkeypatch
+):
+    clock = [10_000.0]
+    monkeypatch.setattr("mesh_bbs.adapters.reticulum.time.time", lambda: clock[0])
+    original = adapter(tmp_path)
+    original.announce = Mock()
+    original._startup_announce()
+    assert original.announce_interval == 1800
+
+    clock[0] += 400
+    restarted = adapter(tmp_path)
+    restarted.announce = Mock()
+    restarted._startup_announce()
+    restarted.announce()  # Manual announces must not postpone the scheduled one.
+    assert restarted._announce_schedule.last_attempt == 10_000
+    calls = []
+
+    async def advance(delay):
+        if restarted.announce.call_count >= 3 or len(calls) > 40:
+            raise asyncio.CancelledError
+        calls.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setattr("mesh_bbs.adapters.reticulum.asyncio.sleep", advance)
+    with pytest.raises(asyncio.CancelledError):
+        await restarted._announcements()
+    assert sum(calls) == 1400
+    assert restarted.announce.call_count == 3
+    assert adapter(tmp_path)._announce_schedule.last_attempt == 11_800
+
+
+async def test_scheduled_announce_failure_does_not_kill_future_announces(
+    tmp_path, monkeypatch, caplog
+):
+    clock = [10_000.0]
+    monkeypatch.setattr("mesh_bbs.adapters.reticulum.time.time", lambda: clock[0])
+    service = adapter(tmp_path)
+    service.announce = Mock(side_effect=[OSError("interface offline"), None])
+    sleeps = []
+
+    async def advance(delay):
+        if service.announce.call_count >= 2 or len(sleeps) > 40:
+            raise asyncio.CancelledError
+        sleeps.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setattr("mesh_bbs.adapters.reticulum.asyncio.sleep", advance)
+    with pytest.raises(asyncio.CancelledError):
+        await service._announcements()
+    assert service.announce.call_count == 2
+    assert sum(sleeps) == 1800
+    assert "Scheduled Reticulum announce failed" in caplog.text
+
+
 async def test_worker_receives_verified_sender_and_dedupe_id_from_foreign_thread(
     tmp_path: Path,
 ) -> None:

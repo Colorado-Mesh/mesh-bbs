@@ -299,6 +299,67 @@ async def test_runtime_keeps_web_and_feeds_running_while_radio_is_missing(
     assert budgets[0]._closed
 
 
+@pytest.mark.parametrize("fails", [False, True])
+async def test_runtime_manual_announce_keeps_service_running_and_limits_repeats(
+    tmp_path, monkeypatch, caplog, fails
+):
+    import signal
+
+    from mesh_bbs import runtime
+    from mesh_bbs.config import HostConfig, ReticulumConfig
+
+    callbacks = {}
+    removed = []
+    events = []
+    started = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(
+        loop, "add_signal_handler", lambda sig, callback: callbacks.update({sig: callback})
+    )
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: removed.append(sig))
+    web = Mock()
+    monkeypatch.setattr("mesh_bbs.web.ReadOnlyWebServer", lambda *args, **kwargs: web)
+
+    class Reticulum:
+        addresses = {"nomadnet": "test"}
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def start(self):
+            events.append("start")
+            started.set()
+
+        def announce(self):
+            events.append("announce")
+            if fails:
+                raise OSError("interface unavailable")
+
+        async def stop(self):
+            events.append("stop")
+
+    monkeypatch.setattr("mesh_bbs.adapters.reticulum.ReticulumAdapter", Reticulum)
+    config = HostConfig(
+        "Test BBS", "test", tmp_path, reticulum=ReticulumConfig(True, tmp_path / "rns")
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(runtime.serve(config, stop=stop))
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        callbacks[signal.SIGUSR1]()
+        callbacks[signal.SIGUSR1]()
+        assert events == ["start", "announce"]
+        assert not task.done()
+        web.stop.assert_not_called()
+        if fails:
+            assert "Manual Reticulum announce failed" in caplog.text
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, 5)
+    assert events == ["start", "announce", "stop"]
+    assert signal.SIGUSR1 in removed
+
+
 @pytest.mark.parametrize("protocol", ["meshcore", "meshtastic"])
 async def test_only_designated_host_gets_announcements(tmp_path, monkeypatch, protocol):
     from mesh_bbs import runtime
