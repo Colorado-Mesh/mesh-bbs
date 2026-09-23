@@ -42,9 +42,14 @@ libraries and leaves radio connections disabled until the operator selects
 their devices. See [installation](docs/install.md) for pinned installs and
 [operations](docs/operations.md) for peers, radios, and a background service.
 
-Colorado Mesh includes its public blog feed. That feed currently contains
-newsletter introductions and links to PDFs; it does not contain the complete
-newsletter text. Text editions can also be published directly into the BBS.
+Colorado Mesh includes its public blog feed and the Markdown text sources for
+published newsletters. Both sync every 15 minutes. Text editions can also be
+published directly into the BBS. NomadNet shows the newest threads first, with
+links to complete posts and their replies.
+
+Optional MeshCore `#bbs` and Meshtastic channel notices announce new threads and
+boards, with DM reading instructions. One designated host per protocol announces;
+other hosts stay silent. See [configuration and duplicate prevention](docs/operations.md#channel-announcements).
 
 ## Use the board
 

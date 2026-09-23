@@ -2,7 +2,7 @@
 
 MeshCore exposes a six-byte sender prefix, not a message ID. Resolve the
 prefix against exactly one full contact key. Names and channel traffic cannot
-identify authors. No Room Server commands or channel transmissions are used.
+identify authors. Opt-in channel notices direct readers to DMs; no Room Server is used.
 
 API: https://github.com/meshcore-dev/meshcore_py/tree/v2.3.14
 160-byte limit: MeshCore src/helpers/BaseChatMesh.h and composeMsgPacket().
@@ -14,11 +14,13 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from mesh_bbs.advertisements import AdvertSchedule
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 
 from .base import (
     DeliveryError,
@@ -73,6 +75,9 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         min_interval: float = 3.0,
         max_attempts: int = 2,
         airtime_limiter: AirtimeLimiter | None = None,
+        announcements: AnnouncementOutbox | None = None,
+        announcement_channel: int | None = None,
+        announcement_channel_name: str | None = None,
         advert_interval_seconds: int = 0,
         advert_state_path: Path | None = None,
     ) -> None:
@@ -82,6 +87,13 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             raise ValueError("Advertisement interval must be 0 or between 3600 and 604800 seconds")
         if advert_interval_seconds and (advert_state_path is None or airtime_limiter is None):
             raise ValueError("Advertisements require persistent schedule and airtime state")
+        if announcements is not None and (
+            airtime_limiter is None or announcement_channel is None or not announcement_channel_name
+        ):
+            raise ValueError("Announcements require persistent airtime state and a named channel")
+        self.announcements = announcements
+        self.announcement_channel = announcement_channel
+        self.announcement_channel_name = announcement_channel_name
         validate_connection(serial_port, tcp_host, tcp_port)
         if not 64 <= max_bytes <= 160:
             raise ValueError("MeshCore max_bytes must be between 64 and 160")
@@ -145,6 +157,9 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             self._subscription = client.subscribe(EventType.CONTACT_MSG_RECV, self._receive)
             self._start_worker()
             await client.start_auto_message_fetching()
+            self._start_announcements(
+                self.announcements, self._prepare_announcement, self._send_announcement
+            )
             if self._advert_schedule is not None:
                 self._advert_task = asyncio.create_task(self._advert_loop())
         except BaseException:
@@ -178,6 +193,37 @@ class MeshCoreAdapter(QueuedRadioAdapter):
                 self._last_send = time.monotonic()
         if result is None:
             raise DeliveryError("MeshCore reply was not acknowledged")
+
+    async def _prepare_announcement(self) -> int:
+        from meshcore import EventType
+
+        async with self._send_lock:
+            channel = await self._client.commands.get_channel(self.announcement_channel)
+            if (
+                channel.type != EventType.CHANNEL_INFO
+                or channel.payload.get("channel_name") != self.announcement_channel_name
+            ):
+                raise DeliveryError("MeshCore announcement channel does not match configuration")
+            name = self.announcement_channel_name
+            if (
+                name
+                and name.startswith("#")
+                and channel.payload.get("channel_secret") != sha256(name.encode()).digest()[:16]
+            ):
+                raise DeliveryError("MeshCore hashtag channel has an unexpected key")
+            return min(self.max_bytes, 160 - len(self._client.self_info["name"].encode()) - 2)
+
+    async def _send_announcement(self, text: str) -> None:
+        from meshcore import EventType
+
+        async with self._send_lock:
+            await self._space_transmission()
+            try:
+                result = await self._client.commands.send_chan_msg(self.announcement_channel, text)
+                if result.type != EventType.OK:
+                    raise DeliveryError("MeshCore channel notice was not accepted")
+            finally:
+                self._last_send = time.monotonic()
 
     async def _sync_clock(self) -> None:
         from meshcore import EventType

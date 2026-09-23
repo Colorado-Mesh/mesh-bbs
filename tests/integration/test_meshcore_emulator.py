@@ -15,12 +15,14 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from mesh_bbs.adapters.meshcore import MeshCoreAdapter
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 from mesh_bbs.commands import CommandService
 from mesh_bbs.store import Store
 from mesh_bbs.supervision import RadioSupervisor
@@ -49,6 +51,7 @@ class CompanionEmulator:
         self.connections = 0
         self.handshakes = []
         self.commands = []
+        self.channel_notices = asyncio.Queue(maxsize=16)
         self.incoming = deque()
         self.outgoing = asyncio.Queue(maxsize=64)
         self.tasks = set()
@@ -126,6 +129,18 @@ class CompanionEmulator:
             await self.frames(b"\x09" + struct.pack("<I", 1700000000))
         elif command == 6:
             assert abs(int.from_bytes(payload[1:], "little") - time.time()) < 5
+            await self.frames(b"\x00")
+        elif command == 31:
+            assert payload == b"\x1f\x01"
+            await self.frames(
+                b"\x12\x01" + b"#bbs".ljust(32, b"\x00") + sha256(b"#bbs").digest()[:16]
+            )
+        elif command == 3:
+            assert payload[1:3] == b"\x00\x01"
+            assert abs(int.from_bytes(payload[3:7], "little") - time.time()) < 5
+            text = payload[7:].decode()
+            assert len(payload[7:]) <= 160 - len("BBS emulator: ")
+            self.channel_notices.put_nowait(text)
             await self.frames(b"\x00")
         elif command == 4:
             assert payload == b"\x04"
@@ -394,3 +409,39 @@ async def test_sdk_disconnect_after_publish_and_reconnect_replays_receipt(tmp_pa
             budget.close()
             store.close()
             await radio.close()
+
+
+async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_path):
+    store = Store(tmp_path / "bbs.db", "test")
+    box = AnnouncementOutbox(store, "meshcore")
+    post = store.publish("local:a", "new", "general", "New meeting", "Body")
+    radio = CompanionEmulator()
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test:meshcore")
+    adapter = None
+    try:
+        port = await radio.start()
+
+        async def command(message):
+            return ""
+
+        adapter = MeshCoreAdapter(
+            command,
+            tcp_host="127.0.0.1",
+            tcp_port=port,
+            min_interval=0,
+            airtime_limiter=budget,
+            announcements=box,
+            announcement_channel=1,
+            announcement_channel_name="#bbs",
+        )
+        await adapter.start()
+        text = await asyncio.wait_for(radio.channel_notices.get(), 3)
+        assert f"read {post.post_id[:12]}; more" in text
+        assert text.startswith("New [general] New meeting")
+        assert not box.poll(time.time())
+    finally:
+        if adapter:
+            await adapter.stop()
+        await radio.close()
+        budget.close()
+        store.close()

@@ -29,6 +29,12 @@ packet_airtime_seconds = 10.0
 # serial_port = "/dev/ttyUSB0"
 # tcp_host = "192.0.2.10"
 # tcp_port = 5000
+# advert_interval_seconds = 86400
+# Coordinate ONE designated BBS origin per overlapping RF mesh.
+# announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
+# announcement_channel = 1
+# announcement_channel_name = "#bbs"
+# announcement_interval_seconds = 600
 
 [meshtastic]
 enabled = false
@@ -41,9 +47,13 @@ firmware_max_attempts = 4
 # serial_port = "/dev/ttyUSB1"
 # tcp_host = "192.0.2.11"
 # tcp_port = 4403
+# Coordinate one designated announcer; provision the secondary channel in the app.
+# announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
+# announcement_channel = 1
+# announcement_channel_name = "BBS"
+# announcement_interval_seconds = 600
 
-# Colorado Mesh preset: blog announcements and newsletter introductions.
-# Linked newsletter PDFs are not imported as full article text.
+# Colorado Mesh preset: full blog articles and published newsletter text sources.
 # For another community, replace this with its own feed or remove the entry.
 # Keep source_id identical on all hosts importing the same source.
 [[feeds]]
@@ -51,6 +61,7 @@ source_id = "colorado-mesh-blog"
 url = "https://blog.coloradomesh.org/feed.xml"
 board = "news"
 poll_seconds = 900
+newsletter_markdown_base_url = "https://raw.githubusercontent.com/Colorado-Mesh/advocacy/main/newsletter/issues/"
 
 # Exchange actual public keys and Reticulum addresses with a peer operator.
 # origin is SHA-256(raw Ed25519 public_key), encoded as 64 lowercase hex digits.

@@ -297,3 +297,56 @@ async def test_runtime_keeps_web_and_feeds_running_while_radio_is_missing(
         stop.set()
         await asyncio.wait_for(task, 10)
     assert budgets[0]._closed
+
+
+@pytest.mark.parametrize("protocol", ["meshcore", "meshtastic"])
+async def test_only_designated_host_gets_announcements(tmp_path, monkeypatch, protocol):
+    from mesh_bbs import runtime
+    from mesh_bbs.cli import open_store
+    from mesh_bbs.config import HostConfig, RadioConfig
+    from mesh_bbs.web import ReadOnlyWebServer
+
+    configs = [HostConfig("Test", "test", tmp_path / str(n)) for n in range(2)]
+    with_store = open_store(configs[0])
+    owner = with_store.origin
+    with_store.close()
+    created = []
+    ready = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "add_signal_handler", lambda *_args: None)
+
+    class TestRadio(Radio):
+        def __init__(self, handler, **options):
+            super().__init__([], "test")
+            created.append(options)
+
+        async def start(self):
+            await super().start()
+            if len(created) == 2:
+                ready.set()
+
+    def web(views, host, port, **kwargs):
+        return ReadOnlyWebServer(views, host, 0, **kwargs)
+
+    monkeypatch.setattr("mesh_bbs.web.ReadOnlyWebServer", web)
+    adapter_name = "MeshCoreAdapter" if protocol == "meshcore" else "MeshtasticAdapter"
+    monkeypatch.setattr(f"mesh_bbs.adapters.{protocol}.{adapter_name}", TestRadio)
+    radio = RadioConfig(
+        enabled=True,
+        serial_port="/dev/fake",
+        announcement_owner=owner,
+        announcement_channel=1,
+        announcement_channel_name="BBS",
+    )
+    from dataclasses import replace
+
+    configs = [replace(c, **{protocol: radio}) for c in configs]
+    stop = asyncio.Event()
+    tasks = [asyncio.create_task(runtime.serve(c, stop=stop)) for c in configs]
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        active = [c["announcements"] for c in created if c["announcements"] is not None]
+        assert len(active) == 1 and active[0].store.origin == owner
+    finally:
+        stop.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)

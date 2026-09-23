@@ -152,9 +152,10 @@ whole BBS as root.
 
 MeshCore and Meshtastic users send the BBS node a direct message such as `help`,
 `boards`, or `news latest`. `more` retrieves the next bounded page. Broadcast
-channel messages are not a command interface. A `#meshbbs` discovery channel can
-be agreed between local operators, but this version does not automatically
-announce newsletters or coordinate regional channel notices.
+channel messages are not a command interface. Operators can enable brief new-thread
+and new-board notices on a discovery channel; see [channel announcements](#channel-announcements).
+Readers DM the announcing node with `read ID`, then send `more` as separate
+messages to continue. `threads BOARD` lists the threads on a newly announced board.
 
 For a short post, send `@meetup-1 post general Meetup | Saturday at nine`.
 For longer text, use the numbered draft commands in the
@@ -370,3 +371,75 @@ not automatic releases or deployments.
 Maintainer references: [uv GitHub integration](https://docs.astral.sh/uv/guides/integration/github/),
 [setup-uv](https://github.com/astral-sh/setup-uv), and
 [Dependabot configuration](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
+
+
+## Channel announcements
+
+Use **one designated announcing host per protocol and overlapping RF mesh**.
+Other companions still accept DMs and replicate posts, but remain silent on the
+channel. All operators should agree on the same `announcement_owner`: the
+64-character `origin` printed by `mesh-bbs init` on the designated host. This is
+the BBS signing identity, not a radio public key or a Reticulum address.
+
+Add these options to the existing `[meshcore]` section on participating hosts:
+
+```toml
+announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
+announcement_channel = 1
+announcement_channel_name = "#bbs"
+announcement_interval_seconds = 600
+```
+
+Create the `#bbs` hashtag channel in the MeshCore companion and reader apps
+first. A hashtag channel uses the key derived from its exact name. The BBS
+verifies the configured index, name and hashtag key before sending; it never
+overwrites radio channels automatically. Channel indexes are local to each
+radio, so use the slot containing `#bbs` on that companion. Keep its public
+name recognizable; the Colorado Mesh pilot uses `coloradomesh.org-bbs`.
+
+Meshtastic uses the same announcement options in `[meshtastic]`, with an
+operator-configured secondary channel, for example:
+
+```toml
+announcement_owner = "REPLACE_WITH_DESIGNATED_HOST_ORIGIN"
+announcement_channel = 1
+announcement_channel_name = "BBS"
+announcement_interval_seconds = 600
+```
+
+Create that Meshtastic secondary channel using the local mesh's agreed channel
+name and PSK, and share its channel URL/QR with readers through the usual app.
+Unlike MeshCore hashtags, a Meshtastic name alone does not establish a shared
+channel key. Match the mesh's radio region and modem preset as well. The service
+checks the index and channel name but does not provision or publish a PSK.
+Meshtastic notices are broadcast text packets without requested acknowledgments
+or application replies. Reading remains via a DM to the announcing node.
+A Meshtastic radio must be explicitly configured and enabled; enabling MeshCore
+does not also enable Meshtastic.
+
+Only the host whose signing identity matches `announcement_owner` sends. Leave
+all three owner/channel options absent to disable notices. Do not independently
+set every host as its own owner or clone one host's private identity across
+running machines. Separate owners on different protocols are fine. Do not use
+automatic timeouts to promote replacements: during a partition, two hosts could
+both claim leadership and spam the same RF channel. To move the role, stop or
+disable the old announcer first, agree on the new origin, and update the configs.
+The newly designated host baselines existing content instead of replaying it.
+
+Notices include the board, a UTF-8-bounded title and a short `read ID` command.
+They cover new root threads from web, radio, CLI, feeds and trusted replication
+across all configured boards, including boards added later. New board notices
+point to `threads BOARD`. Adding a board still means adding it to `boards` in the
+host config and restarting; peer board grants must also be updated for sync.
+Replies, edits, removals and repeated imports do not create new notices.
+
+The default limit is one notice every ten minutes per protocol, sharing the
+persisted radio airtime budget with replies and scheduled adverts. Up to 32
+notices wait in SQLite; bursts keep the newest 32 and log the skipped count.
+Queued notices expire after 24 hours, and historical imports more than 24 hours
+old do not generate notices. First enablement is silent about existing content.
+Seen thread IDs and the send interval survive restarts. The attempt is recorded
+before handing it to the SDK, so a crash or lost serial response cannot create
+a retry storm. This deliberately favors avoiding duplicate channel traffic:
+an uncertain send can be missed, and companion acceptance does not prove RF
+reception. Readers can always use `threads BOARD` or the web/NomadNet view.

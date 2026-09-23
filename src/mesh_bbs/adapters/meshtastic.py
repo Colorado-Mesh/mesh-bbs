@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from collections.abc import Mapping
 from typing import Any
 
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 
 from .base import (
     DeliveryError,
@@ -63,8 +65,18 @@ class MeshtasticAdapter(QueuedRadioAdapter):
         max_attempts: int = 1,
         ack_timeout: float = 90.0,
         airtime_limiter: AirtimeLimiter | None = None,
+        announcements: AnnouncementOutbox | None = None,
+        announcement_channel: int | None = None,
+        announcement_channel_name: str | None = None,
         firmware_max_attempts: int = 4,
     ) -> None:
+        if announcements is not None and (
+            airtime_limiter is None or announcement_channel is None or not announcement_channel_name
+        ):
+            raise ValueError("Announcements require persistent airtime state and a named channel")
+        self.announcements = announcements
+        self.announcement_channel = announcement_channel
+        self.announcement_channel_name = announcement_channel_name
         validate_connection(serial_port, tcp_host, tcp_port)
         if not 64 <= max_bytes <= 233:
             raise ValueError("Meshtastic max_bytes must be between 64 and 233")
@@ -86,6 +98,7 @@ class MeshtasticAdapter(QueuedRadioAdapter):
         self.tcp_host = tcp_host
         self.tcp_port = tcp_port
         self.ack_timeout = ack_timeout
+        self._send_lock = asyncio.Lock()
         self._client: Any = None
         self._pub: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -136,6 +149,9 @@ class MeshtasticAdapter(QueuedRadioAdapter):
             self._start_worker()
             pub.subscribe(self._receive, "meshtastic.receive.text")
             self._pub = pub
+            self._start_announcements(
+                self.announcements, self._prepare_announcement, self._send_announcement
+            )
         except BaseException:
             await self.stop()
             raise
@@ -152,6 +168,14 @@ class MeshtasticAdapter(QueuedRadioAdapter):
             self.enqueue_threadsafe(self._loop, message)
 
     async def send_reply(self, message: IncomingMessage, text: str) -> None:
+        async with self._send_lock:
+            await self._space_transmission()
+            try:
+                await self._send_reply(message, text)
+            finally:
+                self._last_send = time.monotonic()
+
+    async def _send_reply(self, message: IncomingMessage, text: str) -> None:
         if self._client is None:
             raise DeliveryError("Meshtastic adapter is disconnected")
         if "\x00" in text or len(text.encode("utf-8")) > self.max_bytes:
@@ -205,6 +229,42 @@ class MeshtasticAdapter(QueuedRadioAdapter):
                 for packet_id, handler in list(client.responseHandlers.items()):
                     if handler.callback is on_response:
                         client.responseHandlers.pop(packet_id, None)
+
+    async def _space_transmission(self) -> None:
+        await asyncio.sleep(max(0, self.min_interval - (time.monotonic() - self._last_send)))
+
+    async def _prepare_announcement(self) -> int:
+        channels = self._client.localNode.channels
+        channel = next((c for c in channels if c.index == self.announcement_channel), None)
+        if (
+            channel is None
+            or not channel.role
+            or channel.settings.name != self.announcement_channel_name
+        ):
+            raise DeliveryError("Meshtastic announcement channel does not match configuration")
+        return self.max_bytes
+
+    async def _send_announcement(self, text: str) -> None:
+        async with self._send_lock:
+            await self._space_transmission()
+            sending = asyncio.create_task(
+                asyncio.to_thread(
+                    self._client.sendData,
+                    text.encode("utf-8"),
+                    destinationId="^all",
+                    portNum=self._portnum,
+                    channelIndex=self.announcement_channel,
+                    wantAck=False,
+                    wantResponse=False,
+                )
+            )
+            try:
+                await asyncio.shield(sending)
+            finally:
+                try:
+                    await sending  # Do not close the radio under a still-running SDK call.
+                finally:
+                    self._last_send = time.monotonic()
 
     async def stop(self) -> None:
         self._accepting = False

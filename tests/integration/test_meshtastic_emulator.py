@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ import pytest
 from mesh_bbs.adapters.base import IncomingMessage
 from mesh_bbs.adapters.meshtastic import MeshtasticAdapter
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 from mesh_bbs.commands import CommandService
 from mesh_bbs.store import Store
 from mesh_bbs.supervision import RadioSupervisor
@@ -76,8 +78,12 @@ class MeshtasticRadioEmulator:
                 elif kind == "packet":
                     packet = message.packet
                     assert packet.decoded.portnum == portnums_pb2.TEXT_MESSAGE_APP
-                    assert packet.to == REMOTE_NODE
-                    assert packet.want_ack and not packet.decoded.want_response
+                    if packet.to == 0xFFFFFFFF:
+                        assert packet.channel == 1
+                        assert not packet.want_ack and not packet.decoded.want_response
+                    else:
+                        assert packet.to == REMOTE_NODE
+                        assert packet.want_ack and not packet.decoded.want_response
                     assert 0 < len(packet.decoded.payload) <= 160
                     await self._send(
                         mesh_pb2.FromRadio(
@@ -86,7 +92,7 @@ class MeshtasticRadioEmulator:
                             )
                         )
                     )
-                    if self.auto_ack:
+                    if self.auto_ack and packet.want_ack:
                         await self.acknowledge(packet.id)
                     self.outgoing.put_nowait(packet)
                 else:
@@ -128,6 +134,15 @@ class MeshtasticRadioEmulator:
                     index=0,
                     role=channel_pb2.Channel.PRIMARY,
                     settings=channel_pb2.ChannelSettings(name="emulator"),
+                )
+            )
+        )
+        await self._send(
+            mesh_pb2.FromRadio(
+                channel=channel_pb2.Channel(
+                    index=1,
+                    role=channel_pb2.Channel.SECONDARY,
+                    settings=channel_pb2.ChannelSettings(name="BBS"),
                 )
             )
         )
@@ -397,3 +412,41 @@ async def test_meshtastic_supervisor_recovers_publication_after_tcp_radio_outage
             finally:
                 limiter.close()
                 store.close()
+
+
+@pytest.mark.asyncio
+async def test_sdk_channel_notice_uses_configured_secondary_channel_without_ack(tmp_path):
+    store = Store(tmp_path / "bbs.db", "test")
+    box = AnnouncementOutbox(store, "meshtastic")
+    post = store.publish("local:a", "new", "news", "New issue", "Body")
+    radio = MeshtasticRadioEmulator()
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test:meshtastic")
+    adapter = None
+    try:
+        port = await radio.start()
+
+        async def command(message):
+            return ""
+
+        adapter = MeshtasticAdapter(
+            command,
+            tcp_host="127.0.0.1",
+            tcp_port=port,
+            min_interval=0,
+            airtime_limiter=budget,
+            announcements=box,
+            announcement_channel=1,
+            announcement_channel_name="BBS",
+        )
+        await adapter.start()
+        packet = await asyncio.wait_for(radio.outgoing.get(), 5)
+        assert packet.to == 0xFFFFFFFF and packet.channel == 1
+        assert not packet.want_ack and not packet.decoded.want_response
+        assert f"read {post.post_id[:12]}; more" in packet.decoded.payload.decode()
+        assert not box.poll(time.time())
+    finally:
+        if adapter:
+            await adapter.stop()
+        await radio.close()
+        budget.close()
+        store.close()

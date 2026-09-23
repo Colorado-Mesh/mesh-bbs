@@ -14,9 +14,10 @@ community, enter its name and a stable region ID such as `front-range`. Ask the
 other operators which ID to use before joining an existing community. Selecting
 Colorado Mesh sets local defaults and configures the
 [Colorado Mesh blog feed](https://blog.coloradomesh.org/feed.xml). That source
-currently supplies announcements and newsletter introductions; linked newsletter
-PDFs are not imported as full article text. Fetching begins when the service
-runs, and the feed entry can be edited or removed. Other communities start
+supplies full blog articles. Published newsletter links select their Markdown
+text source in Colorado-Mesh/advocacy, so readers also get the newsletter text.
+Both are checked every 15 minutes when the service runs; stable thread IDs
+preserve replies when the source is corrected. The feed can be edited or removed. Other communities start
 without a feed until the operator supplies one. The region choice does not
 register a host or connect it to an official public federation server; peer
 addresses must be provided by their operators.

@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class QueuedRadioAdapter(ABC):
             raise ValueError("sender_requests_per_minute must be between 1 and 60")
         if airtime_limiter is not None:
             airtime_limiter.validate_attempts(transmission_attempts)
+        self._announcement_task: asyncio.Task[None] | None = None
         self.handler = handler
         self.max_bytes = max_bytes
         self.min_interval = min_interval
@@ -145,7 +147,23 @@ class QueuedRadioAdapter(ABC):
         self._accepting = True
         self._worker = asyncio.create_task(self._run())
 
+    def _start_announcements(
+        self,
+        outbox: AnnouncementOutbox | None,
+        prepare: Callable[[], Awaitable[int]],
+        send: Callable[[str], Awaitable[None]],
+    ) -> None:
+        if outbox is not None:
+            assert self.airtime_limiter is not None
+            self._announcement_task = asyncio.create_task(
+                outbox.run(self.airtime_limiter, prepare, send, self.transmission_attempts)
+            )
+
     async def _stop_worker(self) -> None:
+        if self._announcement_task is not None:
+            self._announcement_task.cancel()
+            await asyncio.gather(self._announcement_task, return_exceptions=True)
+            self._announcement_task = None
         self._accepting = False
         worker, self._worker = self._worker, None
         try:

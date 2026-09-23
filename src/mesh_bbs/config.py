@@ -138,9 +138,28 @@ class RadioConfig:
     packet_airtime_seconds: float = 10.0
     firmware_max_attempts: int = 4
     advert_interval_seconds: int = 0
+    announcement_owner: str | None = None
+    announcement_channel: int | None = None
+    announcement_channel_name: str | None = None
+    announcement_interval_seconds: int = 600
 
     def __post_init__(self) -> None:
         _boolean(self.enabled, "radio enabled")
+        _integer(self.announcement_interval_seconds, "announcement interval", 300, 86400)
+        notice_options = (
+            self.announcement_owner,
+            self.announcement_channel,
+            self.announcement_channel_name,
+        )
+        if any(value is not None for value in notice_options):
+            if any(value is None for value in notice_options):
+                raise ValueError("Announcements require owner, channel index and channel name")
+            assert self.announcement_owner is not None
+            assert self.announcement_channel is not None
+            assert self.announcement_channel_name is not None
+            _hex(self.announcement_owner, "announcement_owner", 64)
+            _integer(self.announcement_channel, "announcement_channel", 0, 39)
+            _text(self.announcement_channel_name, "announcement_channel_name", 32)
         _integer(self.advert_interval_seconds, "radio advert_interval_seconds", 0, 604800)
         if 0 < self.advert_interval_seconds < 3600:
             raise ValueError("MeshCore advertisements must be at least one hour apart")
@@ -201,6 +220,11 @@ class HostConfig:
         _text(self.name, "host name")
         if self.meshtastic.advert_interval_seconds:
             raise ValueError("advert_interval_seconds is only supported for MeshCore")
+        if (
+            self.meshtastic.announcement_channel is not None
+            and self.meshtastic.announcement_channel > 7
+        ):
+            raise ValueError("Meshtastic announcement_channel must be 0-7")
         validate_slug(self.region)
         if not isinstance(self.data_dir, Path) or not self.data_dir.is_absolute():
             raise ValueError("data_dir must be an absolute Path")
@@ -363,6 +387,10 @@ def load_config(path: Path) -> HostConfig:
                 "packet_airtime_seconds",
                 "firmware_max_attempts",
                 "advert_interval_seconds",
+                "announcement_owner",
+                "announcement_channel",
+                "announcement_channel_name",
+                "announcement_interval_seconds",
             },
             protocol,
         )

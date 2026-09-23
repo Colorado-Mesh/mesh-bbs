@@ -478,11 +478,11 @@ class Views:
                 or (after_id and not _POST_ID.fullmatch(after_id))
             ):
                 return self._page_error()
-            content = "#!c=0\n>BBS / `F7dcCOMMUNITY BULLETIN BOARD`f\n"
+            content = "#!c=0\n`!`F7dcCOMMUNITY BULLETIN BOARD`f`!\n"
             content += "`!\n" + _literal(self.name) + "`!\n"
             content += "`F9ab\n" + _literal("Region: " + self.store.region) + "`f\n\n"
             if path == "/page/index.mu":
-                content += ">>Browse boards\n"
+                content += "`!`F7dcBrowse boards`f`!\n"
                 for configured_board in self.store.boards:
                     content += _micron_link(configured_board, "board", board=configured_board)
                 recent = [
@@ -491,18 +491,19 @@ class Views:
                     for post in self.store.list_posts(configured_board, limit=NOMAD_RECENT_LIMIT)
                 ]
                 recent.sort(key=lambda post: (post.created_at, post.post_id), reverse=True)
-                content += "\n>>`F7dcLatest entries`f\nNewest first across all boards.\n\n"
+                content += "\n`!`F7dcLatest entries`f`!\nNewest first across all boards.\n\n"
                 content += self._nomad_rows(recent[:NOMAD_RECENT_LIMIT])
                 if not recent:
                     content += "No entries yet.\n"
-                content += "\n>>Take part\nRead an entry in full, or open its thread for replies.\n"
+                content += "\n`!`F7dcTake part`f`!\n"
+                content += "Read an entry in full, or open its thread for replies.\n"
                 content += "Send posting commands to the service's LXMF address. Start with help.\n"
             elif path == "/page/board.mu":
                 board = self._board(board)
                 content += _micron_link("All boards", "index")
                 content += _literal("Board: " + board)
                 posts, next_id = self._listing(board, BOARD_LIMIT, after_id)
-                content += "\n>>`F7dcEntries / newest first`f\n\n"
+                content += "\n`!`F7dcEntries / newest first`f`!\n\n"
                 content += self._nomad_rows(posts)
                 content += f"\nShowing up to {BOARD_LIMIT} threads per page, newest first.\n"
                 if not posts:
@@ -519,7 +520,7 @@ class Views:
                         selected.board, THREAD_LIMIT, after_id, selected.thread_id
                     )
                     content += (
-                        "\n>>`F7dcConversation`f\nOriginal post and replies in reading order.\n\n"
+                        "\n`!`F7dcConversation`f`!\nOriginal post and replies in reading order.\n\n"
                     )
                     for post in posts:
                         content += self._nomad_title(post) + self._nomad_meta(post)

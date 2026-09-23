@@ -11,6 +11,7 @@ from typing import Any
 
 from mesh_bbs.adapters.base import IncomingMessage
 from mesh_bbs.airtime import AirtimeLimiter
+from mesh_bbs.announcements import AnnouncementOutbox
 from mesh_bbs.cli import open_store
 from mesh_bbs.commands import CommandService
 from mesh_bbs.config import HostConfig
@@ -92,6 +93,11 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
                 packet_airtime_seconds=radio.packet_airtime_seconds,
             )
             limiters.append(budget)
+            notices = (
+                AnnouncementOutbox(store, name, interval=radio.announcement_interval_seconds)
+                if radio.announcement_owner == store.origin
+                else None
+            )
             radios[name] = RadioSupervisor(
                 name,
                 partial(
@@ -102,6 +108,9 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
                     tcp_port=radio.tcp_port or port,
                     min_interval=radio.min_interval,
                     airtime_limiter=budget,
+                    announcements=notices,
+                    announcement_channel=radio.announcement_channel,
+                    announcement_channel_name=radio.announcement_channel_name,
                     **options,
                 ),
             )
