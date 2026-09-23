@@ -421,3 +421,114 @@ async def test_exchange_reports_send_failure(tmp_path: Path) -> None:
 def test_object_limit_counts_utf8_bytes() -> None:
     with pytest.raises(ValueError, match="byte limit"):
         _bounded_object({"body": "é" * 20}, 40)
+
+
+def unknown_sender_service(tmp_path: Path, **kwargs: Any) -> ReticulumAdapter:
+    service = adapter(tmp_path, **kwargs)
+    service._running = True
+    service._loop = asyncio.get_running_loop()
+    service._rns = SimpleNamespace(
+        Identity=SimpleNamespace(recall=Mock(return_value=None)),
+        Transport=SimpleNamespace(request_path=Mock()),
+    )
+    service._lxmf = SimpleNamespace(
+        LXMessage=SimpleNamespace(SOURCE_UNKNOWN=1, unpack_from_bytes=Mock())
+    )
+    return service
+
+
+def unknown_message(**kwargs: Any) -> SimpleNamespace:
+    return incoming(
+        signature_validated=False, unverified_reason=1, packed=b"signed bytes", **kwargs
+    )
+
+
+async def test_unknown_sender_is_discovered_and_reverified(tmp_path: Path) -> None:
+    service = unknown_sender_service(tmp_path)
+    service._rns.Identity.recall.side_effect = [None, object()]
+    verified = incoming(source_blackholed=False)
+    service._lxmf.LXMessage.unpack_from_bytes.return_value = verified
+    service._tasks = [asyncio.create_task(service._identity_worker())]
+    service._on_message(unknown_message())
+    await asyncio.sleep(0)
+    await asyncio.wait_for(service._identity_queue.join(), 1)
+    await asyncio.sleep(0)
+    service._rns.Transport.request_path.assert_called_once_with(bytes.fromhex(PEER))
+    service._lxmf.LXMessage.unpack_from_bytes.assert_called_once_with(b"signed bytes")
+    assert service._queue.get_nowait() is verified
+    service._queue.task_done()
+    service._slots.release()
+    await service.stop()
+
+
+@pytest.mark.parametrize("invalid_signature,blackholed", [(True, False), (False, True)])
+async def test_discovery_does_not_bypass_signature_or_blackhole_checks(
+    tmp_path: Path, invalid_signature: bool, blackholed: bool
+) -> None:
+    service = unknown_sender_service(tmp_path)
+    service._rns.Identity.recall.return_value = object()
+    service._lxmf.LXMessage.unpack_from_bytes.return_value = incoming(
+        signature_validated=not invalid_signature, source_blackholed=blackholed
+    )
+    service._tasks = [asyncio.create_task(service._identity_worker())]
+    service._on_message(unknown_message())
+    await asyncio.sleep(0)
+    await asyncio.wait_for(service._identity_queue.join(), 1)
+    assert service._queue.empty()
+    await service.stop()
+
+
+async def test_unknown_sender_timeout_does_not_stall_verified_commands(tmp_path: Path) -> None:
+    service = unknown_sender_service(tmp_path, identity_timeout=0.02)
+    service._send_reply = AsyncMock()
+    service._tasks = [
+        asyncio.create_task(service._identity_worker()),
+        asyncio.create_task(service._command_worker()),
+    ]
+    service._on_message(unknown_message())
+    service._on_message(incoming())
+    await asyncio.sleep(0)
+    await asyncio.wait_for(service._queue.join(), 1)
+    service.command_handler.assert_awaited_once()
+    await asyncio.wait_for(service._identity_queue.join(), 1)
+    service._lxmf.LXMessage.unpack_from_bytes.assert_not_called()
+    await service.stop()
+
+
+async def test_unknown_sender_queue_is_bounded_and_released_on_shutdown(tmp_path: Path) -> None:
+    service = unknown_sender_service(tmp_path, queue_size=2)
+    for _ in range(100):
+        service._on_message(unknown_message())
+    await asyncio.sleep(0)
+    assert service._identity_queue.qsize() == 2
+    service._tasks = [asyncio.create_task(service._identity_worker())]
+    await asyncio.sleep(0)
+    await service.stop()
+    assert service._identity_queue.empty()
+    assert service._identity_slots.acquire(blocking=False)
+    assert service._identity_slots.acquire(blocking=False)
+    assert not service._identity_slots.acquire(blocking=False)
+
+
+async def test_unknown_sender_callback_pending_at_shutdown_returns_slot(tmp_path: Path) -> None:
+    service = unknown_sender_service(tmp_path, queue_size=1)
+    service._on_message(unknown_message())
+    await service.stop()
+    await asyncio.sleep(0)
+    assert service._identity_queue.empty()
+    assert service._identity_slots.acquire(blocking=False)
+
+
+@pytest.mark.parametrize("changes", [{"unverified_reason": 2}, {"packed": b"x" * 70000}])
+async def test_invalid_signatures_and_oversized_packets_do_not_trigger_discovery(
+    tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    service = unknown_sender_service(tmp_path)
+    message = unknown_message()
+    for key, value in changes.items():
+        setattr(message, key, value)
+    service._on_message(message)
+    await asyncio.sleep(0)
+    assert service._identity_queue.empty()
+    service._rns.Transport.request_path.assert_not_called()
+    await service.stop()

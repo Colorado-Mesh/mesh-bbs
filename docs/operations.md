@@ -166,6 +166,13 @@ the LXMF destination printed in the service logs. These are separate from the
 host's federation destination. Reticulum's interface configuration decides what
 links carry traffic; enabling it may transmit announcements on those links.
 
+An LXMF delivery receipt confirms transport delivery, not a command result.
+The BBS resolves a previously unseen sender's identity and verifies the original
+message signature before executing it. Discovery waits up to ten seconds, with
+at most eight pending messages in a separate queue, so established readers keep
+working. If the log says `LXMF sender identity unavailable`, use **Announce now**
+in the sending app and retry the command. Invalid signatures are never accepted.
+
 Local protocol tests use temporary profiles and loopback interfaces. The test
 suite includes actual SDK connections to MeshCore and Meshtastic TCP protocol
 emulators, including lost ACKs and reconnects. These emulators do not run radio

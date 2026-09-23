@@ -89,6 +89,7 @@ class ReticulumAdapter:
         request_limit: int = 262_144,
         delivery_timeout: float = 60.0,
         announce_interval: float = 1_800.0,
+        identity_timeout: float = 10.0,
     ) -> None:
         limits = (queue_size, command_limit, response_limit, request_limit)
         if any(type(value) is not int or value < 1 for value in limits):
@@ -96,7 +97,8 @@ class ReticulumAdapter:
         if queue_size > 1024:
             raise ValueError("Queue size must not exceed 1024")
         if not all(
-            math.isfinite(value) and value > 0 for value in (delivery_timeout, announce_interval)
+            math.isfinite(value) and value > 0
+            for value in (delivery_timeout, announce_interval, identity_timeout)
         ):
             raise ValueError("Timeout and announce interval must be positive")
         if not name or len(name.encode("utf-8")) > 128:
@@ -113,9 +115,14 @@ class ReticulumAdapter:
         self.request_limit = request_limit
         self.delivery_timeout = delivery_timeout
         self.announce_interval = announce_interval
+        self.identity_timeout = identity_timeout
         self._slots = threading.BoundedSemaphore(queue_size)
         self._requests = threading.BoundedSemaphore(8)
         self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=queue_size)
+        # A first-time sender can deliver before its announce reaches us. Keep
+        # discovery separate so one unreachable identity cannot stall verified DMs.
+        self._identity_slots = threading.BoundedSemaphore(min(queue_size, 8))
+        self._identity_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=min(queue_size, 8))
         self._tasks: list[asyncio.Task[None]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
@@ -220,6 +227,7 @@ class ReticulumAdapter:
             self._router.register_delivery_callback(self._on_message)
             self._tasks = [
                 asyncio.create_task(self._command_worker()),
+                asyncio.create_task(self._identity_worker()),
                 asyncio.create_task(self._announcements()),
             ]
             self.announce()
@@ -250,6 +258,7 @@ class ReticulumAdapter:
 
     async def drain(self) -> None:
         """Wait for admitted commands and their transport replies to finish."""
+        await self._identity_queue.join()
         await self._queue.join()
 
     async def stop(self) -> None:
@@ -262,6 +271,10 @@ class ReticulumAdapter:
             self._queue.get_nowait()
             self._queue.task_done()
             self._slots.release()
+        while not self._identity_queue.empty():
+            self._identity_queue.get_nowait()
+            self._identity_queue.task_done()
+            self._identity_slots.release()
         for link in tuple(self._links):
             link.teardown()
         self._links.clear()
@@ -281,7 +294,7 @@ class ReticulumAdapter:
             return False
 
     def _on_message(self, message: Any) -> None:
-        if not self._running or not message.signature_validated:
+        if not self._running:
             return
         if not isinstance(message.content, bytes) or len(message.content) > self.command_limit:
             return
@@ -289,12 +302,56 @@ class ReticulumAdapter:
             message.content.decode("utf-8")
         except UnicodeDecodeError:
             return
+        if not message.signature_validated:
+            if (
+                self._lxmf is not None
+                and getattr(message, "unverified_reason", None)
+                == self._lxmf.LXMessage.SOURCE_UNKNOWN
+                and isinstance(message.source_hash, bytes)
+                and len(message.source_hash) == 16
+                and isinstance(getattr(message, "packed", None), bytes)
+                and len(message.packed) <= self.command_limit + 4096
+                and self._identity_slots.acquire(blocking=False)
+            ):
+                if not self._schedule(self._enqueue_unknown, message):
+                    self._identity_slots.release()
+            return
         # Bound work before scheduling, including callbacks awaiting their loop turn.
         if not self._slots.acquire(blocking=False):
             LOG.warning("Reticulum command queue is full; no application receipt was issued")
             return
         if not self._schedule(self._enqueue, message):
             self._slots.release()
+
+    def _enqueue_unknown(self, message: Any) -> None:
+        if self._running:
+            self._identity_queue.put_nowait(message)
+        else:
+            self._identity_slots.release()
+
+    async def _identity_worker(self) -> None:
+        while True:
+            message = await self._identity_queue.get()
+            try:
+                if self._rns.Identity.recall(message.source_hash) is None:
+                    self._rns.Transport.request_path(message.source_hash)
+                    async with asyncio.timeout(self.identity_timeout):
+                        while self._rns.Identity.recall(message.source_hash) is None:
+                            await asyncio.sleep(0.1)
+                # Reparse the original signed bytes through LXMF. Finding an
+                # identity alone never authorizes a command or a reply.
+                verified = self._lxmf.LXMessage.unpack_from_bytes(message.packed)
+                if verified.signature_validated and not verified.source_blackholed:
+                    self._on_message(verified)
+                else:
+                    LOG.warning("LXMF sender resolved but message signature was rejected")
+            except TimeoutError:
+                LOG.warning("LXMF sender identity unavailable; sender must announce and retry")
+            except Exception:
+                LOG.exception("LXMF sender discovery failed; command was not processed")
+            finally:
+                self._identity_queue.task_done()
+                self._identity_slots.release()
 
     def _enqueue(self, message: Any) -> None:
         if self._running:

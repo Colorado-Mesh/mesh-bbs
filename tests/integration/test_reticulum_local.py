@@ -53,6 +53,15 @@ async def main():
         command_handler=command, page_handler=page, sync_handler=sync,
         trusted_peers=[config["peer"]], delivery_timeout=15,
     )
+    if config["role"] == "client" and not config.get("announce_sender", True):
+        # Reproduce a reader reaching the BBS before its LXMF announce is known.
+        service.announce = lambda: None
+    receive = service._on_message
+    def observe(message):
+        if not message.signature_validated:
+            (root / "unknown-sender").touch()
+        receive(message)
+    service._on_message = observe
     await service.start()
     try:
         (root / "ready.json").write_text(json.dumps(service.addresses))
@@ -143,7 +152,8 @@ asyncio.run(main())
 
 
 @pytest.mark.integration
-def test_real_reticulum_lxmf_pages_and_trusted_sync(tmp_path: Path) -> None:
+@pytest.mark.parametrize("announce_sender", [True, False])
+def test_real_reticulum_lxmf_pages_and_trusted_sync(tmp_path: Path, announce_sender: bool) -> None:
     rns = pytest.importorskip("RNS")
     pytest.importorskip("LXMF")
     with socket.socket() as reservation:
@@ -201,6 +211,7 @@ loglevel = 1
                 "role": "client",
                 "peer": identities["server"].hash.hex(),
                 "peer_ready": str(roots["server"] / "ready.json"),
+                "announce_sender": announce_sender,
             }
             client = subprocess.run(
                 [sys.executable, "-c", NODE_SCRIPT, json.dumps(client_config)],
@@ -212,6 +223,8 @@ loglevel = 1
             assert client.returncode == 0, client.stdout + client.stderr
             result = json.loads((roots["client"] / "result.json").read_text())
             assert result == {"sync": True, "nomadnet": True, "lxmf": ["reply:boards"]}
+            if not announce_sender:
+                assert (roots["server"] / "unknown-sender").exists()
         finally:
             (roots["server"] / "stop").touch()
             try:
