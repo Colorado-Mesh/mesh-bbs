@@ -99,7 +99,7 @@ def test_packet_quick_post_cannot_publish_news_or_unlisted_board(service: Comman
         allow_posts=True,
     )
     assert "not available" in frames[1]
-    assert "editor" in frames[2]
+    assert "read-only" in frames[2]
     assert service.store.db.execute("SELECT count(*) FROM posts").fetchone()[0] == 0
     assert service.store.db.execute("SELECT count(*) FROM command_receipts").fetchone()[0] == 0
 
@@ -118,7 +118,9 @@ def test_board_allowlist_covers_posts_threads_news_and_listing_anchors(
 ) -> None:
     public = service.store.publish("local:operator", "public", "general", "Open", "Open content")
     hidden = service.store.publish("local:operator", "hidden", "other", "Secret", "Secret content")
-    issue = service.store.publish("local:operator", "news", "news", "News", "Restricted news")
+    issue = service.store.import_article(
+        "local:operator", "news", "news", "News", "Restricted news"
+    )
     commands = [
         "threads other",
         f"read {hidden.post_id}",
@@ -175,7 +177,7 @@ def test_drafts_survive_reconnect_and_retry_without_editor_privilege(
     assert len(posts) == 1
     assert posts[0].author == "packet:N0CALL"
     assert posts[0].body == "Meet Saturday\nBring water"
-    assert "editor" in session(service, "new news Forged", boards=("news",), allow_posts=True)[1]
+    assert "read-only" in session(service, "new news Forged", boards=("news",), allow_posts=True)[1]
 
 
 def test_draft_validation_rejects_hidden_board_and_foreign_author(

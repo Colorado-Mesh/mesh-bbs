@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from mesh_bbs.events import HEX_ID, SLUG, BBSError, Event, canonical
+from mesh_bbs.events import HEX_ID, MAX_BOARDS, SLUG, BBSError, Event, canonical
 from mesh_bbs.store import Store
 
 VERSION = 1
@@ -24,7 +24,6 @@ MAX_RESPONSE_BYTES = 512 * 1024
 MAX_REQUEST_BYTES = 32 * 1024
 MAX_INVENTORY_IDS = 128
 MAX_GET_IDS = 32
-MAX_BOARDS = 32
 
 
 @dataclass
@@ -56,7 +55,10 @@ def _boards(value: object) -> frozenset[str]:
     if (
         not isinstance(value, list)
         or len(value) > MAX_BOARDS
-        or any(not isinstance(item, str) or not SLUG.fullmatch(item) for item in value)
+        or any(
+            not isinstance(item, str) or (item != "*" and not SLUG.fullmatch(item))
+            for item in value
+        )
         or len(set(value)) != len(value)
     ):
         raise BBSError("Invalid federation board list")
@@ -94,13 +96,17 @@ class FederationService:
             if not isinstance(boards, frozenset):
                 raise BBSError("Peer board permissions must be a frozenset")
             _boards(sorted(boards))
-            self.peer_boards[peer] = boards & frozenset(store.boards)
+            self.peer_boards[peer] = boards if "*" in boards else boards & frozenset(store.boards)
         self._pull_locks = {peer: asyncio.Lock() for peer in self.peer_boards}
 
     def _allowed(self, peer: str) -> frozenset[str]:
         if peer not in self.peer_boards:
             raise BBSError("Unknown federation peer")
         return self.peer_boards[peer]
+
+    def _shared_boards(self, allowed: frozenset[str], requested: frozenset[str]) -> frozenset[str]:
+        local = frozenset(self.store.boards)
+        return (local if "*" in allowed else allowed) & (local if "*" in requested else requested)
 
     def _envelope(self, mode: str, boards: frozenset[str], **data: Any) -> dict[str, Any]:
         return {
@@ -137,7 +143,7 @@ class FederationService:
                 raise BBSError("Invalid federation inventory cursor")
             if type(limit) is not int or not 1 <= limit <= MAX_INVENTORY_IDS:
                 raise BBSError("Inventory limit must be between 1 and 128")
-            boards = allowed & _boards(request["boards"])
+            boards = self._shared_boards(allowed, _boards(request["boards"]))
             ids = self.store.inventory(boards, after, limit)
             response = self._envelope(
                 "inventory",
@@ -149,7 +155,7 @@ class FederationService:
         elif mode == "get":
             request = self._check_envelope(payload, "get", {"ids"})
             ids = _ids(request["ids"], MAX_GET_IDS)
-            boards = allowed & _boards(request["boards"])
+            boards = self._shared_boards(allowed, _boards(request["boards"]))
             response = self._envelope("get", boards, events=[], remaining=list(ids), unavailable=[])
             for event_id in ids:
                 found = self.store.export([event_id], boards)
@@ -201,7 +207,7 @@ class FederationService:
             payload, "inventory", {"ids", "next", "complete"}, response=True
         )
         effective = _boards(response["boards"])
-        if not effective <= boards:
+        if "*" in effective or ("*" not in boards and not effective <= boards):
             raise BBSError("Peer advertised boards outside the requested permissions")
         ids = _ids(response["ids"], limit)
         if ids != sorted(ids) or any(event_id <= after for event_id in ids):
@@ -221,7 +227,7 @@ class FederationService:
             payload, "get", {"events", "remaining", "unavailable"}, response=True
         )
         effective = _boards(response["boards"])
-        if not effective <= boards:
+        if "*" in effective or ("*" not in boards and not effective <= boards):
             raise BBSError("Peer returned boards outside the requested permissions")
         values = response["events"]
         if not isinstance(values, list) or len(values) > len(requested):

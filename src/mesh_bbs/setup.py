@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import shlex
-import socket
 from pathlib import Path
 
 from mesh_bbs.config import (
@@ -53,7 +52,7 @@ def run_setup(config_path: Path | None = None) -> Path:
         raise FileExistsError(
             f"configuration already exists: {target}; edit it or choose another path"
         )
-    host_name = _ask("Name for this host", f"{community} / {socket.gethostname()}")
+    host_name = _ask("Name for this host", f"{community} BBS")
     data_dir = default_data_dir(region)
     feeds = (
         (
@@ -80,7 +79,7 @@ def run_setup(config_path: Path | None = None) -> Path:
         print("Add your community's RSS/Atom source to the config to import newsletters.")
     quoted = shlex.quote(str(target))
     print(f"Next: mesh-bbs --config {quoted} init")
-    print(f"Create your editor key: mesh-bbs --config {quoted} web-access create alice --editor")
+    print(f"Create your contributor key: mesh-bbs --config {quoted} web-access create alice")
     print("Replace alice with your contributor name. Save the generated key privately.")
     print(f"Start the host: mesh-bbs --config {quoted} serve")
     print(f"Local web address: http://{config.bind_host}:{config.bind_port}")

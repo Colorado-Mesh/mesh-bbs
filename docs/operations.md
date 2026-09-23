@@ -7,7 +7,7 @@ Use `~/.local/bin/mesh-bbs` when the installer directory is not on your PATH.
 
 ```sh
 mesh-bbs --region colorado-mesh init
-mesh-bbs --region colorado-mesh web-access create alice --editor
+mesh-bbs --region colorado-mesh web-access create alice
 mesh-bbs --region colorado-mesh serve
 ```
 
@@ -41,8 +41,8 @@ revocation and cannot be reassigned. If someone loses a key, revoke it and
 issue a new contributor name. A contributor is recorded as `web:NAME`, separate
 from their identity on any radio protocol.
 
-Ordinary contributors can post on general boards and reply to newsletter
-issues. An editor can also start issues on `news`. Browser forms are available
+Contributors can create community boards and post or reply in them. News is
+reserved for automatic imports; even editor accounts cannot post or reply there. Browser forms are available
 at `/new/BOARD` and `/reply/POST_ID`. The browser saves unfinished drafts in
 local storage and keeps the access key in the current tab's session storage.
 Keep the key in private storage for future sessions. Drafts can remain on a
@@ -289,21 +289,12 @@ mesh-bbs --region colorado-mesh command 'news latest'
 in logs. Do not give unrelated sources the same `source_id`, and do not change
 the ID merely because the publisher changed its URL.
 
-An editor can publish a newsletter in the web interface by opening the `news`
-board and creating a post. To publish a local UTF-8 text file as an issue:
+The `news` board only accepts configured automatic imports. No human account can
+create a thread or reply there, including editor accounts and local CLI users.
+Discuss an issue in `general` or create a community board. Existing posts and
+historical replies remain readable; feed corrections preserve their IDs.
 
-```sh
-mesh-bbs --region colorado-mesh post news 'September newsletter' --body-file september.txt --operation colorado-news-2026-09
-```
-
-Reuse the operation ID if retrying this same publication after losing its
-confirmation. Use a different ID for a genuinely new issue. Identical text alone
-does not establish that two submissions were the same operation. Radio authors
-are identified by their transport's address, not their nickname. Only configured
-editors may start newsletter issues through the command interface; other users
-can reply to an issue.
-
-The local operator can correct their own manually published issue or remove a
+The local operator can correct their own community post or remove a
 post:
 
 ```sh
@@ -317,12 +308,9 @@ post applies locally; other hosts only apply that removal when they grant this
 host moderation authority for the board. Removal stops public serving but does
 not erase historical events, backups, or readers' existing copies.
 
-Editor entries use exact transport identities: `meshcore:` followed by the full
-public key, or `reticulum:` followed by the authenticated sender's LXMF
-destination hash. Verify an editor's identity before granting access. Meshtastic
-node addresses are not sufficient authentication for official newsletter
-publishing, so they cannot be configured as editors. Meshtastic users can still
-read issues and reply through the normal BBS commands.
+Radio authors use their transport address, not a nickname. MeshCore, Meshtastic,
+and LXMF users have the same community posting capabilities. Legacy `editors`
+settings do not bypass the read-only News policy.
 
 ## Back up and recover
 
@@ -404,11 +392,11 @@ overwrites radio channels automatically. Channel indexes are local to each
 radio, so use the slot containing `#bbs` on that companion. Keep its public
 name recognizable; the Colorado Mesh pilot uses `coloradomesh.org-bbs`.
 
-Sending exactly `help` (case-insensitive) on that MeshCore channel asks the
+Sending exactly `help` (case-insensitive) on the configured MeshCore or Meshtastic channel asks the
 designated host for a short reply naming its companion and the DM reading
-commands. Send one command per DM: `help`, `boards`, `threads news`, `read ID`,
-then `more` for subsequent pages. DM `help` explains browsing, replies, and
-creating short or multipart posts; its own longer instructions also use `more`.
+instructions. DM `help` for the numbered menu, `next` for more, and `menu` to
+start over. Choose **3** to write or create a community board. `commands` lists
+the advanced syntax for short or multipart posts; use `more` to page through it.
 Channel traffic never creates posts or establishes an author's identity.
 
 Only the designated announcement owner answers channel help. There is at most
@@ -465,3 +453,29 @@ before handing it to the SDK, so a crash or lost serial response cannot create
 a retry storm. This deliberately favors avoiding duplicate channel traffic:
 an uncertain send can be missed, and companion acceptance does not prove RF
 reception. Readers can always use `threads BOARD` or the web/NomadNet view.
+
+### Size the reply allowance for the configured modem
+
+`packet_airtime_seconds` is an upper estimate for **one** transmitted packet,
+not the acknowledgement timeout. The default ten seconds is deliberately
+conservative for unknown radios. With a 120-second/hour allowance, that permits
+only six MeshCore replies (two attempts each), or three Meshtastic replies
+(four firmware attempts each). Set a defensible estimate for your actual modem
+before expecting an interactive conversation; do not copy a fast profile's
+estimate onto a slow LoRa preset.
+
+For the Colorado pilot's MeshCore SF7 / 62.5 kHz / CR 4/5 profile, a maximum
+255-byte LoRa packet with explicit header, CRC, and a 32-symbol preamble takes
+approximately 0.85 seconds. A one-second estimate retains a margin and permits
+up to 60 two-attempt replies per hour under the same 120-second allowance.
+MeshCore's pinned [preamble selection](https://github.com/meshcore-dev/MeshCore/blob/d929643/src/helpers/radiolib/RadioLibWrappers.h)
+and [airtime calculation](https://github.com/meshcore-dev/MeshCore/blob/d929643/src/helpers/radiolib/RadioLibWrappers.cpp)
+use RadioLib. This is an admission estimate, not measured channel occupancy;
+forwarders, firmware ACKs, and unrelated traffic are outside this accounting.
+Meshtastic needs an estimate for its own preset and firmware retry count.
+
+Changing the estimate or budget with the same rolling window preserves already
+charged debt. Raising the estimate scales existing charges conservatively;
+lowering it does not refund them. Changing the window retains a full cooldown
+because older reservation history may already have expired. Restarting does
+not clear the allowance.

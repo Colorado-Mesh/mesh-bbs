@@ -45,11 +45,11 @@ class Elements(HTMLParser):
 
 def test_html_escapes_posts_authors_and_service_names(store: Store) -> None:
     payload = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
-    post = store.publish("radio:<svg/onload=alert(3)>", "op1", "news", payload, payload)
+    post = store.publish("radio:<svg/onload=alert(3)>", "op1", "general", payload, payload)
     views = Views(store, '<script>alert("name")</script>')
     for document in (
         views.html_index(),
-        views.html_board("news"),
+        views.html_board("general"),
         views.html_thread(post.post_id),
         views.html_post(post.post_id),
     ):
@@ -68,12 +68,12 @@ def test_html_escapes_posts_authors_and_service_names(store: Store) -> None:
 
 
 def test_posts_replies_and_deleted_parent_remain_navigable(store: Store) -> None:
-    post = store.publish("local:alice", "issue", "news", "Newsletter", "Line one\n\nLine two")
+    post = store.publish("local:alice", "issue", "general", "Newsletter", "Line one\n\nLine two")
     reply = store.publish(
-        "local:bob", "reply", "news", "Re: Newsletter", "Thanks", parent_id=post.post_id
+        "local:bob", "reply", "general", "Re: Newsletter", "Thanks", parent_id=post.post_id
     )
     views = Views(store, "Colorado Mesh")
-    assert f"/threads/{post.post_id}" in views.html_board("news").decode()
+    assert f"/threads/{post.post_id}" in views.html_board("general").decode()
     assert f"/posts/{reply.post_id}" in views.html_thread(post.post_id).decode()
     assert f"/posts/{post.post_id}" in views.html_post(reply.post_id).decode()
     assert "<p>Line one</p><p>Line two</p>" in views.html_post(post.post_id).decode()
@@ -83,7 +83,7 @@ def test_posts_replies_and_deleted_parent_remain_navigable(store: Store) -> None
     assert "Line one" not in removed
     assert "Thanks" in views.html_thread(post.post_id).decode()
     assert "Removed post" in views.html_thread(post.post_id).decode()
-    assert post.post_id not in views.html_board("news").decode()
+    assert post.post_id not in views.html_board("general").decode()
 
 
 def test_rss_full_text_safe_html_and_stable_guid_across_revisions(store: Store) -> None:
@@ -113,17 +113,18 @@ def test_rss_full_text_safe_html_and_stable_guid_across_revisions(store: Store) 
 
 
 def test_rss_does_not_include_replies_removed_posts_or_other_boards(store: Store) -> None:
-    newsletter = store.publish("a", "news", "news", "Issue", "Original")
-    store.publish("a", "reply", "news", "Reply", "Thanks", parent_id=newsletter.post_id)
+    store.create_board("a", "discussion")
+    newsletter = store.publish("a", "discussion", "discussion", "Issue", "Original")
+    store.publish("a", "reply", "discussion", "Reply", "Thanks", parent_id=newsletter.post_id)
     store.publish("a", "general", "general", "Elsewhere", "Not news")
     views = Views(store, "Mesh")
-    assert len(ET.fromstring(views.rss("news")).findall("./channel/item")) == 1
+    assert len(ET.fromstring(views.rss("discussion")).findall("./channel/item")) == 1
     store.revise("a", "remove", newsletter.post_id, "Issue", "", remove=True)
-    assert not ET.fromstring(views.rss("news")).findall("./channel/item")
+    assert not ET.fromstring(views.rss("discussion")).findall("./channel/item")
 
 
 def test_nomadnet_navigation_uses_full_identifiers_and_request_variables(store: Store) -> None:
-    post = store.publish("a", "news", "news", "Issue", "Hello Reticulum")
+    post = store.import_article("a", "news", "news", "Issue", "Hello Reticulum")
     views = Views(store, "Colorado Mesh")
     assert b"`[news`:/page/board.mu`board=news]" in views.page("/page/index.mu", {})
     board = views.page("/page/board.mu", {"var_board": "news"}).decode()
@@ -184,7 +185,7 @@ def test_nomadnet_home_bounds_recent_entries_and_excludes_removed_posts(store: S
 
 def test_nomadnet_untrusted_markup_stays_inside_literal_blocks(store: Store) -> None:
     attack = "`=\n`[Steal identity`https://evil.invalid]\n`<password`>\n`=\n\\`=\n>Title\n#Hidden\n`{remote}"
-    post = store.publish(attack[:200], "attack", "news", attack[:200], attack + "\x1b[31m")
+    post = store.publish(attack[:200], "attack", "general", attack[:200], attack + "\x1b[31m")
     document = Views(store, attack).page("/page/post.mu", {"var_id": post.post_id}).decode()
     literal = False
     dangerous_lines: list[str] = []
@@ -203,7 +204,7 @@ def test_nomadnet_untrusted_markup_stays_inside_literal_blocks(store: Store) -> 
 
 def test_long_posts_and_listing_limits_are_bounded(store: Store) -> None:
     text = "a\n" * 32768
-    post = store.publish("a", "large", "news", "Long newsletter", text)
+    post = store.publish("a", "large", "general", "Long newsletter", text)
     views = Views(store, "Mesh")
     assert views.html_post(post.post_id).count(b"a<br>") == 32768
     page = views.page("/page/post.mu", {"var_id": post.post_id})
@@ -214,7 +215,7 @@ def test_long_posts_and_listing_limits_are_bounded(store: Store) -> None:
 
 
 def test_xml_invalid_controls_do_not_break_rss(store: Store) -> None:
-    store.publish("a", "control", "news", "Title\x00", "Body\x0b\ufffe")
+    store.import_article("a", "control", "news", "Title\x00", "Body\x0b\ufffe")
     root = ET.fromstring(Views(store, "Mesh\uffff").rss("news"))
     assert root.findtext("./channel/item/title") == "Title\ufffd"
     assert "Body\ufffd\ufffd" in root.findtext("./channel/item/description", "")
@@ -266,25 +267,25 @@ def test_unknown_requests_fail_without_reflecting_input(store: Store) -> None:
 
 def test_board_pages_reach_older_threads_without_repeating_after_new_posts(store: Store) -> None:
     for number in range(55):
-        store.publish("local:a", f"issue-{number}", "news", f"Issue {number}", "Article")
+        store.publish("local:a", f"issue-{number}", "general", f"Issue {number}", "Article")
     views = Views(store, "Mesh")
-    original = store.list_posts("news", limit=200)
+    original = store.list_posts("general", limit=200)
     cursor = original[49].post_id
-    first_html = Elements(views.html_board("news").decode())
-    first_micron = views.page("/page/board.mu", {"var_board": "news"}).decode()
-    assert first_html.next_links == [f"/boards/news?after={cursor}"]
+    first_html = Elements(views.html_board("general").decode())
+    first_micron = views.page("/page/board.mu", {"var_board": "general"}).decode()
+    assert first_html.next_links == [f"/boards/general?after={cursor}"]
     assert [link for link in first_html.links if link.startswith("/threads/")] == [
         f"/threads/{post.post_id}" for post in original[:50]
     ]
     assert re.findall(r"Open thread`:/page/thread.mu`id=([0-9a-f]{64})", first_micron) == [
         post.post_id for post in original[:50]
     ]
-    assert f"`[Next page`:/page/board.mu`board=news|after={cursor}]" in first_micron
+    assert f"`[Next page`:/page/board.mu`board=general|after={cursor}]" in first_micron
 
-    store.publish("local:a", "new-arrival", "news", "Newer issue", "Arrived while reading")
-    second_html = Elements(views.html_board("news", after_id=cursor).decode())
+    store.publish("local:a", "new-arrival", "general", "Newer issue", "Arrived while reading")
+    second_html = Elements(views.html_board("general", after_id=cursor).decode())
     second_micron = views.page(
-        "/page/board.mu", {"var_board": "news", "var_after": cursor}
+        "/page/board.mu", {"var_board": "general", "var_after": cursor}
     ).decode()
     assert [link for link in second_html.links if link.startswith("/threads/")] == [
         f"/threads/{post.post_id}" for post in original[50:]
@@ -298,18 +299,18 @@ def test_board_pages_reach_older_threads_without_repeating_after_new_posts(store
 
 
 def test_thread_pages_reach_all_replies_including_new_arrivals(store: Store) -> None:
-    root = store.publish("local:a", "root", "news", "Discussion", "Root post")
+    root = store.publish("local:a", "root", "general", "Discussion", "Root post")
     for number in range(101):
         store.publish(
             "local:a",
             f"reply-{number}",
-            "news",
+            "general",
             f"Reply {number}",
             "Text",
             parent_id=root.post_id,
         )
     views = Views(store, "Mesh")
-    original = store.list_posts("news", thread_id=root.post_id, limit=200)
+    original = store.list_posts("general", thread_id=root.post_id, limit=200)
     cursor = original[99].post_id
     first_html = Elements(views.html_thread(root.post_id).decode())
     first_micron = views.page("/page/thread.mu", {"var_id": root.post_id}).decode()
@@ -324,7 +325,7 @@ def test_thread_pages_reach_all_replies_including_new_arrivals(store: Store) -> 
     latest = store.publish(
         "local:a",
         "new-reply",
-        "news",
+        "general",
         "New reply",
         "Arrived while reading",
         parent_id=root.post_id,
@@ -345,27 +346,29 @@ def test_thread_pages_reach_all_replies_including_new_arrivals(store: Store) -> 
 
 def test_exact_page_boundary_does_not_offer_an_empty_next_page(store: Store) -> None:
     for number in range(50):
-        store.publish("local:a", f"root-{number}", "news", "Issue", "Article")
+        store.publish("local:a", f"root-{number}", "general", "Issue", "Article")
     views = Views(store, "Mesh")
-    assert not Elements(views.html_board("news").decode()).next_links
-    assert b"Next page" not in views.page("/page/board.mu", {"var_board": "news"})
-    root = store.list_posts("news")[0]
+    assert not Elements(views.html_board("general").decode()).next_links
+    assert b"Next page" not in views.page("/page/board.mu", {"var_board": "general"})
+    root = store.list_posts("general")[0]
     for number in range(99):
-        store.publish("local:a", f"reply-{number}", "news", "Reply", "Text", parent_id=root.post_id)
+        store.publish(
+            "local:a", f"reply-{number}", "general", "Reply", "Text", parent_id=root.post_id
+        )
     assert not Elements(views.html_thread(root.post_id).decode()).next_links
     assert b"Next page" not in views.page("/page/thread.mu", {"var_id": root.post_id})
 
 
 def test_pagination_rejects_invalid_and_mismatched_cursors(store: Store) -> None:
-    root = store.publish("local:a", "root", "news", "Issue", "Article")
-    another = store.publish("local:a", "other", "news", "Other issue", "Article")
-    wrong_board = store.publish("local:a", "general", "general", "Other board", "Text")
+    root = store.publish("local:a", "root", "general", "Issue", "Article")
+    another = store.publish("local:a", "other", "general", "Other issue", "Article")
+    wrong_board = store.import_article("feed", "other", "news", "Other board", "Text")
     views = Views(store, "Mesh")
     for cursor in ("<script>", "a" * 65, "z" * 64, wrong_board.post_id):
         with pytest.raises(BBSError):
-            views.html_board("news", after_id=cursor)
+            views.html_board("general", after_id=cursor)
         assert b"Page unavailable" in views.page(
-            "/page/board.mu", {"var_board": "news", "var_after": cursor}
+            "/page/board.mu", {"var_board": "general", "var_after": cursor}
         )
     with pytest.raises(BBSError):
         views.html_thread(root.post_id, after_id=another.post_id)

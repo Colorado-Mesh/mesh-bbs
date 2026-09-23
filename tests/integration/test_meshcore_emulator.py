@@ -457,8 +457,6 @@ async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_pat
 
 
 async def test_sdk_channel_help_then_dm_help_and_more(tmp_path):
-    from mesh_bbs.commands import HELP
-
     store = Store(tmp_path / "bbs.db", "test")
     box = AnnouncementOutbox(store, "meshcore")
     service = CommandService(store)
@@ -485,16 +483,11 @@ async def test_sdk_channel_help_then_dm_help_and_more(tmp_path):
         await adapter.start()
         await radio.deliver_channel("Reader: help")
         text = await asyncio.wait_for(radio.channel_notices.get(), 3)
-        assert "DM BBS emulator" in text and "boards | threads news | read ID | more | help" in text
+        assert "DM BBS emulator" in text and "with help. Pick a number" in text
         first = await exchange(radio, adapter, "help")
-        assert first.startswith("Send one command per DM.")
-        pages = []
-        for _ in range(10):
-            pages.append(first.removesuffix("\n[more]"))
-            if not first.endswith("\n[more]"):
-                break
-            first = await exchange(radio, adapter, "more")
-        assert "".join(pages) == HELP
+        assert "1 News & newsletters" in first
+        assert "3 Write/resume" in first
+        assert "general" in await exchange(radio, adapter, "2")
         await radio.deliver_channel("Reader: help")  # Repeated packet stays silent.
         await radio.deliver_channel("Other: help", channel=0)
         assert "general" in await exchange(radio, adapter, "boards")
@@ -507,3 +500,27 @@ async def test_sdk_channel_help_then_dm_help_and_more(tmp_path):
         await radio.close()
         budget.close()
         store.close()
+
+
+async def test_guided_menu_create_board_and_long_post_over_meshcore(tmp_path):
+    async with connected_bbs(tmp_path) as (radio, adapter, store):
+        messages = [
+            ("help", "1 News"),
+            ("3", "general"),
+            ("2", "board name"),
+            ("hiking", "title"),
+            ("Saturday hike", "text"),
+            ("Meet at nine. " * 10, "saved"),
+            ("Bring water.", "saved"),
+            ("done", "DRAFT:"),
+            ("next", "publish |"),
+            ("publish", "Posted"),
+            ("publish", "Already posted"),
+        ]
+        for command, expected in messages:
+            response = await exchange(radio, adapter, command)
+            assert expected in response, response
+        posts = store.list_posts("hiking")
+        assert len(posts) == 1 and posts[0].author == ACTOR
+        assert posts[0].body.endswith("\nBring water.")
+        assert radio.outgoing.empty()

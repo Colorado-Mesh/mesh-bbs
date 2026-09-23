@@ -106,7 +106,7 @@ def test_concurrent_connections_share_dedupe_transaction(tmp_path: Path) -> None
             results = list(
                 pool.map(
                     lambda number: (first if number % 2 else second).publish(
-                        ALICE, "same-request", "news", "Issue 9", "Network updates"
+                        ALICE, "same-request", "general", "Issue 9", "Network updates"
                     ),
                     range(32),
                 )
@@ -216,8 +216,9 @@ def test_reply_to_reply_stays_in_original_thread(hosts: tuple[Store, Store, Stor
     nested = store.publish(ALICE, "nested", "general", "", "Park", parent_id=reply.post_id)
     assert nested.thread_id == root.post_id
     assert nested.parent_id == reply.post_id
+    store.create_board(ALICE, "other")
     with pytest.raises(BBSError, match="different board"):
-        store.publish(ALICE, "wrong-board", "news", "", "Body", parent_id=root.post_id)
+        store.publish(ALICE, "wrong-board", "other", "", "Body", parent_id=root.post_id)
 
 
 def test_removal_before_creation_is_retained_and_cannot_resurrect(
@@ -325,18 +326,20 @@ def test_feed_corrections_keep_identity_and_discussion_and_repeated_import_is_no
     hosts: tuple[Store, Store, Store],
 ) -> None:
     store, _, _ = hosts
-    original = store.import_article("newsletter", "issue-9", "news", "September", "First")
-    reply = store.publish(ALICE, "reply", "news", "", "Great issue", parent_id=original.post_id)
-    assert store.import_article("newsletter", "issue-9", "news", "September", "First") == original
-    corrected = store.import_article("newsletter", "issue-9", "news", "September", "Correction")
+    original = store.import_article("newsletter", "issue-9", "general", "September", "First")
+    reply = store.publish(ALICE, "reply", "general", "", "Great issue", parent_id=original.post_id)
+    assert (
+        store.import_article("newsletter", "issue-9", "general", "September", "First") == original
+    )
+    corrected = store.import_article("newsletter", "issue-9", "general", "September", "Correction")
     assert corrected.post_id == original.post_id
     assert corrected.revision_id != original.revision_id
     assert store.get_post(reply.post_id).parent_id == corrected.post_id
     count = len(events(store))
-    repeated = store.import_article("newsletter", "issue-9", "news", "September", "Correction")
+    repeated = store.import_article("newsletter", "issue-9", "general", "September", "Correction")
     assert repeated == corrected
     assert len(events(store)) == count
-    reverted = store.import_article("newsletter", "issue-9", "news", "September", "First")
+    reverted = store.import_article("newsletter", "issue-9", "general", "September", "First")
     assert reverted.body == "First"
     assert reverted.revision_id not in {original.revision_id, corrected.revision_id}
 
@@ -527,7 +530,7 @@ def test_repeated_draft_id_collisions_fail_without_unbounded_retry(
 def test_inventory_and_export_respect_board_grants(hosts: tuple[Store, Store, Store]) -> None:
     store, _, _ = hosts
     store.publish(ALICE, "general", "general", "Public", "Hello")
-    store.publish(ALICE, "news", "news", "News", "Issue")
+    store.import_article(ALICE, "news", "news", "News", "Issue")
     general = frozenset({"general"})
     ids = store.inventory(general)
     assert len(ids) == 1

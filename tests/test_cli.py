@@ -30,25 +30,34 @@ def test_operator_edit_remove_and_retry(configuration, tmp_path: Path, capsys) -
     body.write_text("Initial edition")
     assert (
         main(
-            [*args, "post", "news", "September", "--body-file", str(body), "--operation", "create"]
+            [
+                *args,
+                "post",
+                "general",
+                "September",
+                "--body-file",
+                str(body),
+                "--operation",
+                "create",
+            ]
         )
         == 0
     )
     store = open_store(config)
-    post = store.list_posts("news")[0]
+    post = store.list_posts("general")[0]
     store.close()
     body.write_text("Corrected edition")
     edit = [*args, "edit", post.post_id, "--body-file", str(body), "--operation", "correct"]
     assert main(edit) == main(edit) == 0
     store = open_store(config)
     assert store.get_post(post.post_id).body == "Corrected edition"
-    assert len(store.inventory(frozenset({"news"}))) == 2
+    assert len(store.inventory(frozenset({"general"}))) == 2
     store.close()
     removal = [*args, "remove", post.post_id, "--operation", "withdraw"]
     assert main(removal) == main(removal) == 0
     store = open_store(config)
     assert store.get_post(post.post_id).deleted
-    assert len(store.inventory(frozenset({"news"}))) == 3
+    assert len(store.inventory(frozenset({"general"}))) == 3
     store.close()
     assert "Removed locally" in capsys.readouterr().out
 
@@ -98,8 +107,8 @@ def test_remove_operation_id_cannot_target_another_post(configuration) -> None:
     config, _ = configuration
     store = open_store(config)
     try:
-        first = store.publish("local:operator", "one", "news", "Title", "Text")
-        second = store.publish("local:operator", "two", "news", "Title", "Text")
+        first = store.publish("local:operator", "one", "general", "Title", "Text")
+        second = store.publish("local:operator", "two", "general", "Title", "Text")
         store.remove("same", first.post_id)
         with pytest.raises(BBSError, match="different content"):
             store.remove("same", second.post_id)

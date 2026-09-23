@@ -402,7 +402,7 @@ async def test_meshcore_channel_help_is_bounded_owned_and_restart_safe(
         expected = outcome in {"ok", "uncertain", "short_packet"}
         assert len(notices) == int(expected)
         if expected:
-            assert "boards" in notices[0] and "read ID" in notices[0] and "more" in notices[0]
+            assert "help" in notices[0] and "number" in notices[0]
             assert len(notices[0].encode()) <= (64 if outcome == "short_packet" else 139)
             assert budget._db.execute("SELECT count(*) FROM reservations").fetchone()[0] == 1
         assert (

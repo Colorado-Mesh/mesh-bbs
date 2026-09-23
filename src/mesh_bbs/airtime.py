@@ -116,8 +116,17 @@ class AirtimeLimiter:
                     )
                     old_limits = self._get("limits")
                     if old_limits is not None and old_limits != limits:
-                        old_window = float(json.loads(old_limits)[1])
-                        self._set("blocked_until", str(now + max(old_window, window_seconds)))
+                        _, old_window, old_packet = map(float, json.loads(old_limits))
+                        if old_window != self.window_seconds:
+                            # Older expired records may already have been pruned.
+                            self._set("blocked_until", str(now + max(old_window, window_seconds)))
+                        elif self.packet_airtime_seconds > old_packet:
+                            # Preserve debt when correcting an underestimate. Lower
+                            # estimates never refund previously reserved airtime.
+                            self._db.execute(
+                                "UPDATE reservations SET cost=cost*?",
+                                (self.packet_airtime_seconds / old_packet,),
+                            )
                     self._set("limits", limits)
                     self._db.execute("COMMIT")
                 except BaseException:

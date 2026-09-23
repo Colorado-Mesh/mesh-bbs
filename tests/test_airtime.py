@@ -442,3 +442,42 @@ def test_protocol_adapters_reserve_their_entire_retry_allowance(tmp_path):
             )
     finally:
         insufficient.close()
+
+
+def test_same_window_estimate_change_preserves_debt_without_blackout(tmp_path):
+    clock = Clock()
+    budget = limiter(tmp_path, clock)
+    budget.finish(reserve(budget, 2))  # Four seconds already charged.
+    budget.close()
+    reopened = limiter(tmp_path, clock, packet_airtime_seconds=1)
+    try:
+        reopened.finish(reserve(reopened, 2))
+        assert reopened.try_reserve(1) == (None, 60)
+    finally:
+        reopened.close()
+    # Increasing the estimate charges existing reservations conservatively.
+    increased = limiter(tmp_path, clock, packet_airtime_seconds=2)
+    try:
+        assert increased.try_reserve(1) == (None, 60)
+        clock.now += 60
+        increased.finish(reserve(increased, 3))
+    finally:
+        increased.close()
+
+
+def test_same_window_budget_change_keeps_existing_reservations(tmp_path):
+    clock = Clock()
+    budget = limiter(tmp_path, clock)
+    budget.finish(reserve(budget, 3))
+    budget.close()
+    larger = limiter(tmp_path, clock, budget_seconds=8)
+    try:
+        larger.finish(reserve(larger))
+        assert larger.try_reserve(1) == (None, 60)
+    finally:
+        larger.close()
+    smaller = limiter(tmp_path, clock, budget_seconds=4)
+    try:
+        assert smaller.try_reserve(1) == (None, 60)
+    finally:
+        smaller.close()

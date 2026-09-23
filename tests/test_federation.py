@@ -82,7 +82,7 @@ def test_invalid_inventory_request_is_rejected(hosts, changes: dict) -> None:
 def test_board_permissions_are_explicit_intersection(hosts) -> None:
     stores, _ = hosts
     public = stores[0].publish("alice", "one", "general", "Hello", "Public")
-    private = stores[0].publish("alice", "two", "news", "News", "Restricted")
+    private = stores[0].import_article("alice", "two", "news", "News", "Restricted")
     service = FederationService(stores[0], {PEERS[1]: frozenset({"general"})})
     inventory = service.handle_request(PEERS[1], request("inventory", after="", limit=128))
     assert inventory["boards"] == ["general"]
@@ -98,7 +98,8 @@ def test_get_response_keeps_large_events_below_wire_limit(hosts) -> None:
     stores, services = hosts
     body = "é" * (MAX_BODY_BYTES // 2)
     posts = [
-        stores[0].publish("editor", f"issue-{index}", "news", "Issue", body) for index in range(6)
+        stores[0].import_article("editor", f"issue-{index}", "news", "Issue", body)
+        for index in range(6)
     ]
     ids = [post.revision_id for post in posts]
     response = services[0].handle_request(PEERS[1], request("get", ids=ids))
@@ -120,7 +121,9 @@ async def test_three_offline_hosts_converge_with_replies_revisions_unicode_and_r
         "bob", "reply", "general", "Re: Weekend plans", "Count me in", parent_id=root.post_id
     )
     stores[0].revise("alice", "correction", root.post_id, "Weekend plans", "Meet Sunday")
-    newsletter = stores[1].publish("editor", "september", "news", "September newsletter", body)
+    newsletter = stores[1].import_article(
+        "editor", "september", "news", "September newsletter", body
+    )
     independent = stores[2].publish(
         "charlie", "island-post", "general", "Offline", "Posted offline"
     )
@@ -192,7 +195,7 @@ async def test_partial_large_page_resumes_only_missing_events_without_skipping(h
     stores, services = hosts
     body = "é" * (MAX_BODY_BYTES // 2)
     for index in range(6):
-        stores[0].publish("editor", str(index), "news", "Issue", body)
+        stores[0].import_article("editor", str(index), "news", "Issue", body)
     first = await services[1].pull_peer(PEERS[0], transport(services[0], PEERS[1]), max_requests=2)
     assert first.stop_reason == "request_budget"
     assert 0 < first.accepted_events < 6

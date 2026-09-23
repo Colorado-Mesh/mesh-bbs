@@ -33,7 +33,12 @@ def byte_prefix(text: str, limit: int) -> str:
 
 
 class CommandService:
-    def __init__(self, store: Store, editors: tuple[str, ...] = ("local:operator",)) -> None:
+    def __init__(
+        self, store: Store, editors: tuple[str, ...] = ("local:operator",), *, guided: bool = True
+    ) -> None:
+        from mesh_bbs.menus import Menus
+
+        self.guided = guided
         self.store = store
         self.editors = frozenset(editors)
         with store.transaction():
@@ -43,6 +48,7 @@ class CommandService:
                 "response TEXT NOT NULL, expires REAL, revision_id TEXT NOT NULL DEFAULT '', "
                 "PRIMARY KEY(actor,operation))"
             )
+        self.menus = Menus(self)
 
     def handle(
         self,
@@ -88,7 +94,12 @@ class CommandService:
                     raise BBSError("Response exceeds the interface limit")
                 if request_id:
                     expiry = time.time() + request_ttl_seconds if request_ttl_seconds else None
-                    reading = text.split(" ", 1)[0].lower() in {"read", "more", "news"}
+                    reading = text.split(" ", 1)[0].lower() in {
+                        "read",
+                        "more",
+                        "news",
+                        "next",
+                    } or self.menus.reading(actor)
                     cursor = (
                         self.store.db.execute(
                             "SELECT revision_id FROM cursors WHERE actor=?",
@@ -149,14 +160,17 @@ class CommandService:
     def _can_start(self, actor: str, board: str) -> None:
         if board not in self.store.boards:
             raise BBSError("Unknown board")
-        if board == "news" and actor not in self.editors:
-            raise BBSError("Newsletter issues require an editor; anyone can reply")
+        if board == "news":
+            raise BBSError("News is read-only; automatic imports only. Choose another board.")
 
     def _execute(self, actor: str, text: str, budget: int) -> str:
+        guided = self.menus.handle(actor, text, budget) if self.guided else None
+        if guided is not None:
+            return guided
         verb, _, arguments = text.partition(" ")
         verb = verb.lower()
         arguments = arguments.strip()
-        if verb in {"", "help"}:
+        if verb == "commands":
             return self._begin_page(actor, HELP, "help", budget)
         if verb == "boards":
             return self._begin_page(

@@ -5,6 +5,47 @@ direct message to its companion node. On Reticulum, send an LXMF message to the
 host's advertised BBS address. The host operator supplies those addresses.
 MeshCore Room Servers and hashtag channels are not used for these commands.
 
+## Start with the menu
+
+DM `help` on **MeshCore, Meshtastic, or Reticulum/LXMF**. The interaction is identical:
+
+```text
+1 News & newsletters
+2 Browse boards
+3 Write/resume a post
+```
+
+Reply with a displayed number. `next` gets another page, `back` returns to the
+previous list, and `menu` starts over. Numbers refer to the page you saw, even
+if new posts arrive meanwhile. Reading never automatically floods the channel.
+
+To write, choose **3**, select a board or **Create a board**, send a title, then
+send the text in one or more messages. The bot saves each part and prompts you.
+Send `done` to review, `next` for more preview, then `publish`. Publication needs
+that explicit final message; repeating `publish` returns the same post. `add`
+returns from preview to add more text. `cancel` discards the draft. `menu` then
+**3** resumes it, including after the host restarts. Sessions are private to
+that transport address on that host; switching apps/addresses does not move a draft.
+
+When reading a community post, `reply` starts a reply draft and `replies` opens
+the conversation. **News is read-only for everyone, including editors and replies.**
+Colorado Mesh news comes from its configured automatic sources. Start a community
+thread to discuss an issue.
+
+Community board names use lowercase letters, numbers and hyphens (up to 64
+characters). The guided radio flow converts spaces to hyphens. There are at most
+32 boards per host and eight new boards per sender per day. Empty boards also
+replicate when operators explicitly trust peers for all community boards.
+
+Keep radio text messages short. A radio accepts at most 12 requests per sender
+per minute, and the operator's airtime allowance also applies. If a body-part
+confirmation is lost, blindly resending plain text can append it twice on
+MeshCore. For an uncertain link, use the numbered-part commands below: retries
+of an explicit part are safe. Meshtastic/LXMF transport retransmissions have
+request deduplication, but a manually resent message may be a new operation.
+
+## Optional one-message posting
+
 For a short post, send one message:
 
 ```text
@@ -23,8 +64,8 @@ scoped to the sender, so switching protocol identities or hosts is not a safe
 way to retry a write. Reusing an ID with changed text returns an error. Sending
 the same text without an operation ID can create another post.
 
-The `news` board accepts new issues only from configured editors. Other readers
-can reply to an issue. All posts are public to readers of that board.
+All published community posts are public to readers of that board. News only
+accepts automatic imports.
 
 ## Read a board or newsletter
 
@@ -79,8 +120,8 @@ individual radio messages used to build them must fit the connection.
 
 ## Packet terminal sessions
 
-The same commands are available through an operator-configured packet terminal
-session. Enter one command per line; `quit` ends the BBS session. Posting must
+The explicit commands above are available through an operator-configured packet terminal
+session (the numbered DM menu is not available there). Enter one command per line; `quit` ends the BBS session. Posting must
 be enabled by the operator with `--allow-posts`, and only its selected boards
 are available. Terminal sessions cannot publish official newsletter issues.
 See [packet terminal setup](transports.md#cleartext-packet-terminal) for the

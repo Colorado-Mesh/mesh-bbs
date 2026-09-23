@@ -12,6 +12,7 @@ import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -151,12 +152,15 @@ class MeshtasticRadioEmulator:
         await self._send(config)
         await self._send(mesh_pb2.FromRadio(config_complete_id=config_id))
 
-    async def text(self, text: str, packet_id: int, *, to: int = LOCAL_NODE) -> None:
+    async def text(
+        self, text: str, packet_id: int, *, to: int = LOCAL_NODE, channel: int = 0
+    ) -> None:
         assert len(text.encode("utf-8")) <= 233
         message = mesh_pb2.FromRadio()
         setattr(message.packet, "from", REMOTE_NODE)
         message.packet.to = to
         message.packet.id = packet_id
+        message.packet.channel = channel
         message.packet.decoded.portnum = portnums_pb2.TEXT_MESSAGE_APP
         message.packet.decoded.payload = text.encode("utf-8")
         await self._send(message)
@@ -418,7 +422,9 @@ async def test_meshtastic_supervisor_recovers_publication_after_tcp_radio_outage
 async def test_sdk_channel_notice_uses_configured_secondary_channel_without_ack(tmp_path):
     store = Store(tmp_path / "bbs.db", "test")
     box = AnnouncementOutbox(store, "meshtastic")
-    post = store.publish("local:a", "new", "news", "New issue", "Body")
+    post = store.import_article(
+        "feed", "new", "news", "New issue", "Body", published_at=datetime.now(UTC).isoformat()
+    )
     radio = MeshtasticRadioEmulator()
     budget = AirtimeLimiter(tmp_path / "airtime.db", "test:meshtastic")
     adapter = None
@@ -444,6 +450,76 @@ async def test_sdk_channel_notice_uses_configured_secondary_channel_without_ack(
         assert not packet.want_ack and not packet.decoded.want_response
         assert f"read {post.post_id[:12]}; more" in packet.decoded.payload.decode()
         assert not box.poll(time.time())
+    finally:
+        if adapter:
+            await adapter.stop()
+        await radio.close()
+        budget.close()
+        store.close()
+
+
+async def test_guided_menu_create_board_and_long_post_over_meshtastic(radio_session):
+    radio, store = radio_session.radio, radio_session.store
+    messages = [
+        ("help", "1 News"),
+        ("3", "general"),
+        ("2", "board name"),
+        ("hiking", "title"),
+        ("Saturday hike", "text"),
+        ("Meet at nine. " * 10, "saved"),
+        ("Bring water.", "saved"),
+        ("done", "DRAFT:"),
+        ("next", "publish |"),
+        ("publish", "Posted"),
+        ("publish", "Already posted"),
+    ]
+    # Advance only the admission clock: human readers do not send 24 DMs instantly.
+    now = [0.0]
+    radio_session.adapter._request_clock = lambda: now[0]
+    for packet, (command, expected) in enumerate(messages, 701):
+        now[0] += 12
+        response = await radio.command(command, packet)
+        assert expected in response, response
+        assert await radio.command(command, packet) == response
+    posts = store.list_posts("hiking")
+    assert len(posts) == 1 and posts[0].author == REMOTE_ACTOR
+    assert posts[0].body.endswith("\nBring water.")
+    await radio_session.adapter.drain()
+    assert radio.outgoing.empty()
+
+
+async def test_channel_help_on_meshtastic_points_to_the_same_dm_menu(tmp_path):
+    store = Store(tmp_path / "bbs.db", "test")
+    box = AnnouncementOutbox(store, "meshtastic")
+    service = CommandService(store)
+    radio = MeshtasticRadioEmulator()
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test:meshtastic", packet_airtime_seconds=1)
+    adapter = None
+
+    async def command(message):
+        return service.handle(message.sender, message.text, request_id=message.message_id)
+
+    try:
+        port = await radio.start()
+        adapter = MeshtasticAdapter(
+            command,
+            tcp_host="127.0.0.1",
+            tcp_port=port,
+            min_interval=0,
+            announcements=box,
+            airtime_limiter=budget,
+            announcement_channel=1,
+            announcement_channel_name="BBS",
+        )
+        await adapter.start()
+        await radio.text("help", 901, to=0xFFFFFFFF, channel=1)
+        assert "DM !aabbccdd with help. Pick a number" in await radio.response()
+        await radio.text("help", 901, to=0xFFFFFFFF, channel=1)
+        await radio.text("help", 902, to=0xFFFFFFFF, channel=0)
+        assert "3 Write/resume" in await radio.command("help", 903)
+        await adapter.drain()
+        assert radio.outgoing.empty()
+        assert not store.list_posts("general")
     finally:
         if adapter:
             await adapter.stop()

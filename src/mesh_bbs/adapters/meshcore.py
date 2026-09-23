@@ -21,8 +21,7 @@ from typing import Any
 from mesh_bbs.advertisements import AdvertSchedule
 from mesh_bbs.airtime import AirtimeLimiter
 from mesh_bbs.announcements import AnnouncementOutbox
-from mesh_bbs.channel_help import ChannelHelpGate
-from mesh_bbs.commands import display_text
+from mesh_bbs.channel_help import ChannelHelpGate, instructions
 
 from .base import (
     DeliveryError,
@@ -227,14 +226,7 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             if not gate.available(fingerprint, time.time()):
                 return
             max_bytes = await self._prepare_announcement()
-            name = " ".join(display_text(self._client.self_info["name"]).split())
-            board = "news" if "news" in gate.store.boards else gate.store.boards[0]
-            text = (
-                f"BBS: DM {name}, one command at a time: "
-                f"boards | threads {board} | read ID | more | help"
-            )
-            if len(text.encode()) > max_bytes:
-                text = "BBS: DM this node: boards, threads BOARD, read ID, more, help"
+            text = instructions(self._client.self_info["name"], max_bytes)
             if len(text.encode()) > max_bytes:
                 raise DeliveryError("MeshCore channel help exceeds available packet size")
             # No public-help backlog: a busy radio stays silent rather than replying late.

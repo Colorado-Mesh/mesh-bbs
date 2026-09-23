@@ -109,14 +109,13 @@ The wizard prints these next steps using your actual configuration path:
 
 ```sh
 ~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml init
-~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml web-access create alice --editor
+~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml web-access create alice
 ~/.local/bin/mesh-bbs --config ~/.config/mesh-bbs/colorado-mesh/config.toml serve
 ```
 
 Replace `alice` with your contributor name. The second command prints an access
 key once; save it privately. Open `http://127.0.0.1:8080/connect` and enter that
-key to write posts or newsletter issues. Ordinary contributors get a key with
-the same command without `--editor`. Public board reading at
+key to write community posts and create boards. News is read-only for all accounts. Public board reading at
 `http://127.0.0.1:8080` needs no key. This is a standalone Mesh BBS interface and
 requires no Mesh Client installation.
 

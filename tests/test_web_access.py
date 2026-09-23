@@ -122,25 +122,20 @@ def test_caller_cannot_forge_actor_or_editor_flag(access: WebAccess) -> None:
 
 
 @pytest.mark.parametrize("configured", [False, True])
-def test_news_editor_may_start_issues_and_contributors_may_reply(
-    access: WebAccess,
-    configured: bool,
-) -> None:
+def test_news_is_read_only_even_for_editors(access: WebAccess, configured: bool) -> None:
     token = access.create("editor", editor=not configured)
     if configured:
         access = WebAccess(access.store, editors=("web:editor",))
     editor = access.authenticate(token)
     reader = access.authenticate(access.create("reader"))
     assert editor.editor
-    root = access.publish(editor, post(board="news"))
-    with pytest.raises(AccessDenied) as error:
-        access.publish(reader, post(board="news"))
-    assert error.value.status == 403
-    reply = access.publish(
-        reader, post(board="news", title="", parent_id=root.post_id, body="Looking forward to it")
-    )
-    assert reply.thread_id == reply.parent_id == root.post_id
-    assert reply.author == "web:reader"
+    root = access.store.import_article("colorado", "issue", "news", "Newsletter", "Text")
+    for user in (editor, reader):
+        for parent in ("", root.post_id):
+            with pytest.raises(AccessDenied) as error:
+                access.publish(user, post(board="news", parent_id=parent))
+            assert error.value.status == 403
+    assert len(access.store.list_posts("news", thread_id=root.post_id)) == 1
 
 
 def test_editor_permission_is_rechecked_at_publication(access: WebAccess) -> None:
@@ -211,8 +206,9 @@ def test_utf8_maximum_post_is_accepted(access: WebAccess) -> None:
 def test_cross_board_and_removed_parent_replies_are_rejected(access: WebAccess) -> None:
     user = access.authenticate(access.create("alice"))
     root = access.publish(user, post())
+    access.store.create_board(user.actor, "other")
     with pytest.raises(BBSError, match="different board"):
-        access.publish(user, post(board="news", parent_id=root.post_id, operation="reply"))
+        access.publish(user, post(board="other", parent_id=root.post_id, operation="reply"))
     reply = access.publish(user, post(parent_id=root.post_id, operation="reply", title=""))
     access.store.remove("remove-parent", root.post_id)
     assert access.publish(user, post(parent_id=root.post_id, operation="reply", title="")) == reply

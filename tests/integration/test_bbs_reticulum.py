@@ -116,7 +116,7 @@ async def run_node(config: dict[str, Any]) -> None:
                 )
                 return {"parent": parent.post_id, "reply": reply.post_id}
             if config["name"] == "beta":
-                post = store.publish("editor", "long", "news", "Long issue", LONG_BODY)
+                post = store.import_article("editor", "long", "news", "Long issue", LONG_BODY)
             else:
                 post = store.publish("charlie", "offline", "general", "Offline", "Posted offline")
             feed = FeedConfig("colorado-newsletter", "https://example.org/feed", poll_seconds=60)

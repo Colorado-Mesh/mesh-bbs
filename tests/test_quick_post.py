@@ -86,15 +86,11 @@ def test_exact_store_title_and_body_limits_are_accepted(service: CommandService)
     assert (post.title, post.body) == (title, body)
 
 
-def test_unknown_board_and_news_editor_permissions_are_shared(service: CommandService) -> None:
+def test_unknown_board_and_news_policy_are_shared(service: CommandService) -> None:
     assert service.handle(ALICE, "post unknown Title | Text") == "Error: Unknown board"
-    assert "editor" in service.handle(ALICE, "post news September | Official issue")
+    for actor in (ALICE, "local:operator"):
+        assert "read-only" in service.handle(actor, "post news September | Official issue")
     assert not service.store.list_posts("news")
-    assert service.handle("local:operator", "post news September | Official issue").startswith(
-        "Saved locally"
-    )
-    issue = service.store.list_posts("news")[0]
-    assert (issue.title, issue.author) == ("September", "local:operator")
 
 
 def test_explicit_retry_replays_after_restart_with_one_post_and_event(tmp_path: Path) -> None:
@@ -168,7 +164,7 @@ def test_failed_receipt_write_rolls_back_post_and_event(service: CommandService)
 
 @pytest.mark.parametrize("budget", [64, 160, 4096])
 def test_help_keeps_quick_post_syntax_when_paged(service: CommandService, budget: int) -> None:
-    page = service.handle(ALICE, "help", max_bytes=budget)
+    page = service.handle(ALICE, "commands", max_bytes=budget)
     text = ""
     for _ in range(10):
         assert len(page.encode()) <= budget

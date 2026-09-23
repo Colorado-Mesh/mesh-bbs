@@ -142,7 +142,8 @@ class Views:
             '<button id="signout" type="button" hidden>Sign out</button></div></header>'
             '<div class="workspace"><aside class="sidebar"><p class="eyebrow">Your community</p>'
             f'<p class="region">{region}</p><nav aria-label="Boards"><a href="/">All boards</a>'
-            f'{boards}</nav><a class="connect-link" href="/connect">Connect over a mesh</a>'
+            f'{boards}<a href="/new-board">Create a board</a></nav>'
+            '<a class="connect-link" href="/connect">Connect over a mesh</a>'
             '<div class="sidebar-note"><span class="status-dot"></span> A local copy'
             "<p>Saved here first. Shared with connected peers as links become available.</p>"
             '</div></aside><main id="content"><div class="page-heading">'
@@ -220,7 +221,13 @@ class Views:
             sections.append(
                 f'<section class="board-section"><div class="section-heading"><div>'
                 f'<h2><a href="/boards/{board}"><span class="hash">#</span> {board}</a></h2>'
-                f'<p>{subtitle}</p></div><a class="button" href="/new/{board}">New post</a></div>'
+                f"<p>{subtitle}</p></div>"
+                + (
+                    f'<a class="button" href="/new/{board}">New post</a>'
+                    if board != "news"
+                    else '<span class="hint">Automatic imports only</span>'
+                )
+                + "</div>"
                 + (
                     self._rows(posts)
                     if posts
@@ -242,7 +249,12 @@ class Views:
         body = (
             f'<div class="toolbar"><span>Newest threads first</span>'
             f'<div><a href="/feeds/{board}.xml">Subscribe with RSS</a> '
-            f'<a class="button primary" href="/new/{board}">New post</a></div></div>'
+            + (
+                f'<a class="button primary" href="/new/{board}">New post</a>'
+                if board != "news"
+                else '<span class="hint">Read-only: automatic imports</span>'
+            )
+            + "</div></div>"
         )
         body += (
             self._rows(posts)
@@ -293,7 +305,7 @@ class Views:
             f'</header><div class="post-body">{body}</div><div class="post-actions">'
             + (
                 f'<a class="button" href="/reply/{post.post_id}">Reply</a>'
-                if not post.deleted
+                if not post.deleted and post.board != "news"
                 else ""
             )
             + (
@@ -325,6 +337,13 @@ class Views:
         if parent and parent.deleted:
             raise BBSError("This post was removed")
         board = self._board(parent.board if parent else board)
+        if board == "news":
+            return self._html(
+                "News is read-only",
+                "<p>News comes from automatic imports. "
+                'Start a discussion on a community board instead.</p><a href="/">Browse boards</a>',
+                board=board,
+            )
         title = "Reply to " + self._title(parent) if parent else "New post"
         context = (
             f'<a href="/posts/{parent.post_id}">{escape(_text(self._title(parent)))}</a>'
@@ -361,6 +380,24 @@ class Views:
         )
         return self._html(title, body, board=board)
 
+    def html_new_board(self) -> bytes:
+        return self._html(
+            "Create a community board",
+            (
+                "<p>Give your topic a short name. Anyone in this community can read and post. "
+                "News is reserved for automatic imports.</p>"
+                '<form id="board-form"><label for="board-name">Board name</label>'
+                '<input id="board-name" name="board" required maxlength="64" '
+                'pattern="[a-z0-9][a-z0-9-]{0,63}" placeholder="hiking">'
+                '<p class="hint">Use lowercase letters, numbers, and hyphens.</p>'
+                '<button id="create-board" type="submit" class="primary" disabled>'
+                "Create board</button>"
+                '<p id="board-message" role="status">'
+                "Sign in with your contributor key to create a board.</p>"
+                "</form>"
+            ),
+        )
+
     def html_connect(self) -> bytes:
         body = (
             '<p class="lede">One board. Different ways in.</p><div class="guide">'
@@ -371,19 +408,19 @@ class Views:
             "provided by your operator. Use the same commands on either network.</p>"
             "<h2>From Reticulum</h2><p>Send an LXMF message to the service destination. "
             "You can also browse its NomadNet pages. Ask the operator for the addresses.</p>"
-            "<h2>Start with these commands</h2><pre>boards\nthreads general\nread POST_ID\nmore\n"
-            "@meetup-1 post general Saturday meetup | Meet at the trailhead at 9.</pre>"
-            "<p>Keep the same @operation-id when retrying a post. "
-            "Use a new one for a different post.</p>"
-            "<h2>Long posts and replies</h2><pre>new general Trip report\n"
-            "add DRAFT_ID 1 First part…\n"
-            "add DRAFT_ID 2 Next part…\npreview DRAFT_ID\npublish DRAFT_ID\n\n"
-            "reply POST_ID Thanks for the report!\npublish REPLY_DRAFT_ID</pre>"
-            "<p>The service returns each draft ID. Keep radio messages within your network’s "
-            "packet limit; split longer text across numbered parts. "
-            "Newsletter threads need editor access.</p>"
-            "<h2>Packet radio</h2><p>Your operator can provide a packet terminal gateway with the "
-            "same commands. Posting must be enabled for that gateway.</p></div>"
+            "<h2>Start with help</h2><p>DM <strong>help</strong> to see a numbered menu. "
+            "Reply with a number to choose news, a board, or a post. "
+            "Send <strong>next</strong> for another page, <strong>back</strong> to return, "
+            "or <strong>menu</strong> to start over.</p>"
+            "<h2>Write a post</h2><p>Choose <strong>3</strong> from the main menu. Pick a board "
+            "or create one, send a title, then send your text in one or more short messages. "
+            "Send <strong>done</strong> to review and <strong>publish</strong> to post. "
+            "Nothing is public before publish. Send <strong>cancel</strong> to discard.</p>"
+            "<p>News is read-only and comes from automatic imports. Use community boards for "
+            "discussion. The same menu works on MeshCore, Meshtastic, and Reticulum. "
+            "Send <strong>commands</strong> for the advanced command reference.</p>"
+            "<h2>Packet radio</h2><p>Your operator can provide a packet terminal gateway "
+            "with explicit commands. Posting must be enabled for that gateway.</p></div>"
         )
         return self._html("Connect & contribute", body)
 

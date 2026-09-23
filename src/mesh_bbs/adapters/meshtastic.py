@@ -3,7 +3,8 @@
 The node number is a gateway-attested address, not a verified human identity.
 Native 32-bit packet IDs identify radio retries only for a limited time; the
 application must not use them as permanent post IDs. Writes need their own
-operation IDs. Channel broadcasts and text addressed to another node are ignored.
+operation IDs. Only exact help on the configured announcement channel is handled
+publicly; posting and reading happen in DMs.
 
 API: https://github.com/meshtastic/python/tree/2.7.11/meshtastic
 """
@@ -11,13 +12,16 @@ API: https://github.com/meshtastic/python/tree/2.7.11/meshtastic
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
+import threading
 import time
 from collections.abc import Mapping
 from typing import Any
 
 from mesh_bbs.airtime import AirtimeLimiter
 from mesh_bbs.announcements import AnnouncementOutbox
+from mesh_bbs.channel_help import ChannelHelpGate, instructions
 
 from .base import (
     DeliveryError,
@@ -26,6 +30,30 @@ from .base import (
     QueuedRadioAdapter,
     validate_connection,
 )
+
+LOG = logging.getLogger(__name__)
+
+
+def channel_help_fingerprint(packet: Mapping[str, Any], local: int, channel: int) -> str | None:
+    sender, packet_id = packet.get("from"), packet.get("id")
+    decoded = packet.get("decoded")
+    if (
+        type(sender) is not int
+        or not 0 < sender < 0xFFFFFFFF
+        or sender == local
+        or type(packet_id) is not int
+        or not 0 < packet_id <= 0xFFFFFFFF
+        or packet.get("to") != 0xFFFFFFFF
+        or type(packet.get("channel", 0)) is not int
+        or packet.get("channel", 0) != channel
+        or not isinstance(decoded, Mapping)
+        or decoded.get("portnum") != "TEXT_MESSAGE_APP"
+        or not isinstance(decoded.get("text"), str)
+        or len(decoded["text"].encode()) > 233
+        or decoded["text"].strip().casefold() != "help"
+    ):
+        return None
+    return f"{channel}:{sender:08x}:{packet_id:08x}"
 
 
 def parse_meshtastic_message(
@@ -77,6 +105,11 @@ class MeshtasticAdapter(QueuedRadioAdapter):
         self.announcements = announcements
         self.announcement_channel = announcement_channel
         self.announcement_channel_name = announcement_channel_name
+        self._help_gate = (
+            ChannelHelpGate(announcements.store, "meshtastic") if announcements else None
+        )
+        self._help_slot = threading.BoundedSemaphore(1)
+        self._channel_help_task: asyncio.Task[None] | None = None
         validate_connection(serial_port, tcp_host, tcp_port)
         if not 64 <= max_bytes <= 233:
             raise ValueError("Meshtastic max_bytes must be between 64 and 233")
@@ -166,6 +199,42 @@ class MeshtasticAdapter(QueuedRadioAdapter):
         message = parse_meshtastic_message(packet, interface.myInfo.my_node_num)
         if message is not None:
             self.enqueue_threadsafe(self._loop, message)
+        elif self._help_gate is not None and self.announcement_channel is not None:
+            fingerprint = channel_help_fingerprint(
+                packet, interface.myInfo.my_node_num, self.announcement_channel
+            )
+            if fingerprint is not None and self._help_slot.acquire(blocking=False):
+                try:
+                    self._loop.call_soon_threadsafe(self._start_channel_help, fingerprint)
+                except RuntimeError:
+                    self._help_slot.release()
+
+    def _start_channel_help(self, fingerprint: str) -> None:
+        if not self._accepting:
+            self._help_slot.release()
+            return
+        self._channel_help_task = asyncio.create_task(self._answer_channel_help(fingerprint))
+        self._channel_help_task.add_done_callback(lambda _: self._help_slot.release())
+
+    async def _answer_channel_help(self, fingerprint: str) -> None:
+        gate, limiter = self._help_gate, self.airtime_limiter
+        assert gate is not None and limiter is not None
+        reservation = None
+        try:
+            if not gate.available(fingerprint, time.time()):
+                return
+            max_bytes = await self._prepare_announcement()
+            text = instructions(f"!{self._client.myInfo.my_node_num:08x}", max_bytes)
+            reservation, _ = limiter.try_reserve(self.transmission_attempts)
+            if reservation is None or not gate.claim(fingerprint, time.time()):
+                return
+            await self._send_announcement(text)
+            LOG.info("Meshtastic channel help accepted by companion")
+        except Exception:
+            LOG.exception("Meshtastic channel help failed; no uncertain send retry")
+        finally:
+            if reservation is not None:
+                limiter.finish(reservation)
 
     async def send_reply(self, message: IncomingMessage, text: str) -> None:
         async with self._send_lock:
@@ -272,6 +341,10 @@ class MeshtasticAdapter(QueuedRadioAdapter):
             if self._pub is not None:
                 self._pub.unsubscribe(self._receive, "meshtastic.receive.text")
                 self._pub = None
+            if self._channel_help_task is not None:
+                self._channel_help_task.cancel()
+                await asyncio.gather(self._channel_help_task, return_exceptions=True)
+                self._channel_help_task = None
             await self._stop_worker()
         finally:
             self._loop = None

@@ -93,7 +93,7 @@ as gateway-attested. Another connection asserted as the same station has
 access to its drafts and retry receipts, so the gateway's station association
 must be trustworthy. This interface never grants editor rights, even when the
 underlying command service has an editor entry with that address. It cannot
-start official newsletter issues; with posting enabled it can reply to one.
+post or reply on News. With posting enabled it can write on selected community boards.
 
 Numbered draft parts support long posts without sending a large radio packet:
 

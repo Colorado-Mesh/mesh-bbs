@@ -43,24 +43,23 @@ their devices. See [installation](docs/install.md) for pinned installs and
 [operations](docs/operations.md) for peers, radios, and a background service.
 
 Colorado Mesh includes its public blog feed and the Markdown text sources for
-published newsletters. Both sync every 15 minutes. Text editions can also be
-published directly into the BBS. NomadNet shows the newest threads first, with
+published newsletters. Both sync every 15 minutes. News is read-only: human posts and replies belong on community boards. NomadNet shows the newest threads first, with
 links to complete posts and their replies.
 
 Optional MeshCore `#bbs` and Meshtastic channel notices announce new threads and
 boards, with DM reading instructions. One designated host per protocol announces;
 other hosts stay silent. See [configuration and duplicate prevention](docs/operations.md#channel-announcements).
-On the configured MeshCore channel, send `help` for the BBS contact and reading
-commands. DM `help` to any BBS companion for full instructions; send `more` to
-continue a long reply.
+On either configured radio announcement channel, send `help` for the BBS contact.
+DM `help` for a numbered menu: **1 News, 2 Boards, 3 Write/resume**. Reply with a
+number to choose; `next` gets more, `back` returns, and `menu` starts over.
 
 ## Use the board
 
-After setup, initialize the host, create your web editor key, and start it:
+After setup, initialize the host, create your web contributor key, and start it:
 
 ```sh
 mesh-bbs --region colorado-mesh init
-mesh-bbs --region colorado-mesh web-access create alice --editor
+mesh-bbs --region colorado-mesh web-access create alice
 mesh-bbs --region colorado-mesh serve
 ```
 
@@ -70,9 +69,8 @@ replace `--region colorado-mesh` with `--config /path/to/config.toml` in all thr
 commands. The setup wizard prints commands with your actual config path.
 
 Open `http://127.0.0.1:8080` to read boards. Visit `/connect` to sign in with the
-key, then choose a board and write a post or reply to a thread. The editor key
-also permits newsletter issues on `news`; ordinary contributors can publish on
-other boards and reply to issues. Reading is public and needs no key. This web
+key, then choose a board and write a post or reply to a thread. Choose **Create board** for a new topic. Everyone can write on community boards;
+`news` only accepts automatic imports, even for editor accounts. Reading is public and needs no key. This web
 interface runs in Mesh BBS itself, independently of Mesh Client.
 
 The browser keeps the access key in the current tab's session storage and
@@ -81,39 +79,20 @@ you need it later; do not put it in a URL or a public message. For access from
 other computers, configure HTTPS and `public_url` as described in
 [operations](docs/operations.md#web-contributors-and-public-access).
 
-DM the configured MeshCore companion, Meshtastic node, or LXMF destination.
-The same commands are available locally with `mesh-bbs command 'COMMAND'`:
+DM the configured MeshCore companion, Meshtastic node, or LXMF destination with
+`help`. All three use the same menu. To post:
 
-```text
-boards
-threads general
-news latest
-@meetup-1 post general Saturday meetup | Bring a radio. Meet at nine.
-read POST_ID
-more
-thread POST_ID
-reply POST_ID I can help Saturday.
-publish DRAFT_ID
-```
+1. Choose **3**. Pick a board or **Create a board**.
+2. Send a title, then your text in one or more messages.
+3. Send `done` to review, then `publish`. Nothing is public until publication.
 
-Replies first create a draft and show the parent ID. `publish DRAFT_ID` commits
-it; repeating that command returns the existing post. Longer posts use `new`,
-numbered `add` parts, and `preview`. `more` continues a saved revision even if a
-new issue arrives. Removal stops serving the saved copy.
-The single-message `post` command publishes immediately. Reuse its
-`@operation-id` for a manual retry of the same command to the same host.
-See the [command guide](docs/commands.md) for short posts, multipart uploads,
-replies, and packet terminal sessions.
+Drafts survive a host restart. `menu` then **3** resumes a draft; `cancel`
+discards it. When reading a community post, send `reply` to write a response.
+Long posts are paged on demand. The bot sends one response per request.
 
-For an editor publishing a newsletter from a text file:
-
-```sh
-mesh-bbs post news 'September newsletter' \
-  --body-file september.txt --operation september-2026
-```
-
-Reuse the operation ID when retrying the same publication. A successful response
-means the host saved the post; it does not claim another host has replicated it.
+For experienced users, `post general Title | Text` publishes in one step.
+`commands` shows the full reference. See the [command guide](docs/commands.md)
+for retry handling, long posts, replies, and packet terminal sessions.
 
 RSS is available at `/feeds/news.xml`. Reticulum also serves
 NomadNet-compatible pages.

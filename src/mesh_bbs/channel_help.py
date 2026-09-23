@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mesh_bbs.commands import byte_prefix, display_text
 from mesh_bbs.store import Store
 
 HELP_INTERVAL = 300
@@ -46,3 +47,11 @@ class ChannelHelpGate:
                     (self.protocol, fingerprint, now),
                 ).rowcount
             )
+
+
+def instructions(address: str, max_bytes: int) -> str:
+    name = byte_prefix(" ".join(display_text(address).split()), 45)
+    text = f"BBS: DM {name} with help. Pick a number to read or write. next=more | menu=start"
+    if len(text.encode()) > max_bytes:
+        text = "BBS: DM this node with help. Reply with a menu number."
+    return text

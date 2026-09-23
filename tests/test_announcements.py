@@ -16,7 +16,14 @@ def test_initial_history_is_silent_but_all_new_boards_and_threads_are_noticed(tm
     outbox = AnnouncementOutbox(store, "meshcore")
     now = time.time()
     assert not outbox.poll(now)
-    post = store.publish("local:alice", "new", "news", "News issue", "body")
+    post = store.import_article(
+        "local:alice",
+        "new",
+        "news",
+        "News issue",
+        "body",
+        published_at=datetime.now(UTC).isoformat(),
+    )
     assert outbox.poll(now)
     text = outbox.take(now, 128)
     assert text == f"New [news] News issue\nDM this node: read {post.post_id[:12]}; more"

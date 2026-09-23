@@ -165,7 +165,9 @@ def _handler(
             )
             if status == 405:
                 methods = (
-                    "POST" if access is not None and self.path == "/api/posts" else "GET, HEAD"
+                    "POST"
+                    if access is not None and self.path in {"/api/posts", "/api/boards"}
+                    else "GET, HEAD"
                 )
                 self.send_header("Allow", methods)
             self.send_header("Connection", "close")
@@ -278,6 +280,8 @@ def _handler(
                     body = views.html_index()
                 elif path == "/connect" and access is not None:
                     body = views.html_connect()
+                elif path == "/new-board" and access is not None:
+                    body = views.html_new_board()
                 elif len(parts) == 3 and parts[1] == "new" and access is not None:
                     body = views.html_compose(board=parts[2])
                 elif len(parts) == 3 and parts[1] == "reply" and access is not None:
@@ -317,7 +321,7 @@ def _handler(
             if access is None:
                 self.send_error(405)
                 return
-            if self.path != "/api/posts":
+            if self.path not in {"/api/posts", "/api/boards"}:
                 self._json(404, {"error": "Not Found"})
                 return
             try:
@@ -356,6 +360,10 @@ def _handler(
                 )
                 if not isinstance(payload, dict):
                     raise BBSError("Post body must be a JSON object")
+                if self.path == "/api/boards":
+                    board = access.create_board(user, payload)
+                    self._json(201, {"status": "saved_locally", "board": board})
+                    return
                 post = access.publish(user, payload)
                 self._json(
                     201,

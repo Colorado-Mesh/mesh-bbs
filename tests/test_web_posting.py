@@ -146,8 +146,9 @@ def test_http_roles_and_revocation_are_enforced(
         token=editor,
         data=json.dumps(payload(board="news")).encode(),
     )
-    assert status == 201
-    assert submit(service, board="news", parent_id=json.loads(body)["post_id"], title="")[0] == 201
+    assert status == 403
+    issue = access.store.import_article("colorado", "issue", "news", "News", "Text")
+    assert submit(service, board="news", parent_id=issue.post_id, title="")[0] == 403
     access.revoke("alice")
     assert request(server, "/api/session", token=token)[0] == 401
     assert submit(service)[0] == 401
@@ -427,3 +428,32 @@ def test_static_files_are_allowlisted_and_browser_routes_have_restrictive_csp(
     assert request(server, "/api/session?token=secret")[0] == 400
     for path in ("/connect", "/new/general"):
         assert request(server, path)[0] == 200
+
+
+def test_authenticated_board_creation_then_post_and_revocation(service):
+    server, access, token = service
+    data = b'{"board":"hiking"}'
+    for _ in range(2):
+        status, _, body = request(server, "/api/boards", method="POST", token=token, data=data)
+        assert status == 201 and json.loads(body) == {"board": "hiking", "status": "saved_locally"}
+    assert submit(service, board="hiking")[0] == 201
+    for content in (
+        b'{"board":"news"}',
+        b'{"board":"../bad"}',
+        b'{"board":"forged","actor":"other"}',
+    ):
+        assert request(server, "/api/boards", method="POST", token=token, data=content)[0] == 400
+    assert request(server, "/api/boards", method="POST", data=data)[0] == 401
+    assert (
+        request(
+            server,
+            "/api/boards",
+            method="POST",
+            token=token,
+            data=data,
+            headers={"Origin": "https://evil.invalid"},
+        )[0]
+        == 403
+    )
+    access.revoke("alice")
+    assert request(server, "/api/boards", method="POST", token=token, data=data)[0] == 401

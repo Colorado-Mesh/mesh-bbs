@@ -20,7 +20,16 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from mesh_bbs.events import HEX_ID, MAX_BODY_BYTES, SLUG, BBSError, Event, canonical, stable_id
+from mesh_bbs.events import (
+    HEX_ID,
+    MAX_BOARDS,
+    MAX_BODY_BYTES,
+    SLUG,
+    BBSError,
+    Event,
+    canonical,
+    stable_id,
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +103,7 @@ CREATE TABLE IF NOT EXISTS cursors (
     actor TEXT PRIMARY KEY, body TEXT NOT NULL, position INTEGER NOT NULL,
     revision_id TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS community_boards (name TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS command_receipts (
     actor TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL,
     response TEXT NOT NULL, expires REAL, revision_id TEXT NOT NULL DEFAULT '',
@@ -110,7 +120,12 @@ class Store:
         boards: tuple[str, ...] = ("general", "news"),
         grants: Mapping[str, Grant] | None = None,
     ) -> None:
-        if not SLUG.fullmatch(region) or not boards or any(not SLUG.fullmatch(b) for b in boards):
+        if (
+            not SLUG.fullmatch(region)
+            or not boards
+            or len(boards) > MAX_BOARDS
+            or any(not SLUG.fullmatch(b) for b in boards)
+        ):
             raise BBSError("Use lowercase region and board slugs")
         if str(path) != ":memory:":
             file = Path(path)
@@ -125,7 +140,7 @@ class Store:
                 os.fchmod(fd, 0o600)
             finally:
                 os.close(fd)
-        self.region, self.boards = region, boards
+        self.region, self._configured_boards = region, boards
         self.grants = dict(grants or {})
         self._lock = threading.RLock()
         self.db = sqlite3.connect(
@@ -180,6 +195,49 @@ class Store:
         with self._lock:
             self.db.close()
 
+    @property
+    def boards(self) -> tuple[str, ...]:
+        with self._lock:
+            created = tuple(
+                r[0] for r in self.db.execute("SELECT name FROM community_boards ORDER BY name")
+            )
+            return tuple(dict.fromkeys((*self._configured_boards, *created)))
+
+    def _register_board(self, board: str) -> None:
+        if board not in self.boards:
+            if len(self.boards) >= MAX_BOARDS:
+                raise BBSError("This community has reached its 32-board limit")
+            self.db.execute("INSERT OR IGNORE INTO community_boards VALUES (?)", (board,))
+
+    def create_board(self, actor: str, board: str) -> str:
+        if not SLUG.fullmatch(board):
+            raise BBSError("Use a board name with lowercase letters, numbers, and hyphens (max 64)")
+        if board == "news":
+            raise BBSError("News is read-only; automatic imports only")
+        with self.transaction():
+            if board in self.boards:
+                return board
+            recent = self.db.execute(
+                "SELECT count(*) FROM events WHERE origin=? AND clock>? "
+                "AND json_extract(payload,'$.kind')='board' AND json_extract(payload,'$.author')=?",
+                (self.origin, time.time_ns() // 1_000_000 - 86_400_000, actor),
+            ).fetchone()[0]
+            if recent >= 8:
+                raise BBSError("Board creation limit reached; try again tomorrow")
+            post_id = stable_id(self.region, "board", board)
+            event = self._sign(
+                kind="board",
+                post_id=post_id,
+                thread_id=post_id,
+                parent_id="",
+                board=board,
+                author=actor,
+                title=board,
+                body="",
+            )
+            self._accept(event)
+            return board
+
     def _meta(self, key: str) -> str | None:
         row = self.db.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
         return str(row[0]) if row else None
@@ -221,14 +279,22 @@ class Store:
 
     def _accept(self, event: Event) -> bool:
         event.validate(self.region)
-        if event.board not in self.boards:
-            raise BBSError("Board is not configured on this host")
         moderator = event.origin == self.origin
+        can_create_board = event.origin == self.origin and event.kind == "board"
         if event.origin != self.origin:
             grant = self.grants.get(event.origin)
-            if not grant or grant.public_key != event.public_key or event.board not in grant.boards:
+            if (
+                not grant
+                or grant.public_key != event.public_key
+                or not (event.board in grant.boards or "*" in grant.boards)
+            ):
                 raise BBSError("Origin is not trusted to write this board")
             moderator = grant.can_moderate
+            can_create_board = "*" in grant.boards
+        if event.board not in self.boards:
+            if not can_create_board:
+                raise BBSError("Board is not configured on this host")
+            self._register_board(event.board)
         changed = self.db.execute(
             "INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?,?)",
             (
@@ -243,7 +309,8 @@ class Store:
         ).rowcount
         if changed:
             self._set_meta("clock", str(max(event.clock, int(self._meta("clock") or 0))))
-            self._project(event.post_id)
+            if event.kind != "board":
+                self._project(event.post_id)
         return bool(changed)
 
     def accept(self, event: Event) -> bool:
@@ -391,6 +458,8 @@ class Store:
         source_item: str = "",
         published_at: str = "",
     ) -> Post:
+        if board == "news" and not source_id:
+            raise BBSError("News is read-only; automatic imports only. Post to another board.")
         if not operation or len(operation) > 256:
             raise BBSError("A bounded operation ID is required")
         fingerprint = stable_id(board, title, body, parent_id, source_id, source_item)
@@ -447,6 +516,8 @@ class Store:
             raise BBSError("A bounded operation ID is required")
         with self.transaction():
             post = self.get_post(post_id)
+            if post.board == "news" and not post.source_id and not remove:
+                raise BBSError("News is read-only; automatic imports only")
             if actor != post.author or (post.origin != self.origin and not post.source_id):
                 raise BBSError("Only the originating author can revise this post")
             fingerprint = stable_id(post.post_id, title, body, str(remove))
@@ -531,6 +602,8 @@ class Store:
             return self.get_post(post.post_id)
 
     def new_draft(self, actor: str, board: str, title: str, parent_id: str = "") -> str:
+        if board == "news":
+            raise BBSError("News is read-only; automatic imports only. Post to another board.")
         if board not in self.boards or not title or len(title.encode()) > 256:
             raise BBSError("Choose a configured board and a title up to 256 bytes")
         with self.transaction():

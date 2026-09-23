@@ -91,7 +91,7 @@ def test_installed_wheel_can_initialize_publish_read_and_back_up(tmp_path: Path)
     post = [
         *command,
         "post",
-        "news",
+        "general",
         "Package smoke",
         "--body-file",
         str(body),
@@ -100,7 +100,7 @@ def test_installed_wheel_can_initialize_publish_read_and_back_up(tmp_path: Path)
     ]
     first = run(post)
     assert first == run(post)
-    assert "installed wheel" in run([*command, "command", "news latest"])
+    assert "installed wheel" in run([*command, "command", "read " + first.split()[3].rstrip(".")])
     assert "Database OK" in run([*command, "doctor"])
     backup = tmp_path / "snapshot.sqlite3"
     run([*command, "backup", str(backup)])

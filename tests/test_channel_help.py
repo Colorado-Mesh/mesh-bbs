@@ -57,3 +57,28 @@ def test_help_deduplication_cooldown_and_bounded_storage_survive_restart(tmp_pat
     count = store.db.execute("SELECT count(*) FROM channel_help_attempts").fetchone()[0]
     assert count <= HELP_REPLAY_WINDOW // HELP_INTERVAL + 1
     store.close()
+
+
+def test_meshtastic_channel_help_only_accepts_exact_help_on_selected_channel():
+    from mesh_bbs.adapters.meshtastic import channel_help_fingerprint
+
+    packet = {
+        "from": 1234,
+        "to": 0xFFFFFFFF,
+        "id": 42,
+        "channel": 1,
+        "decoded": {"portnum": "TEXT_MESSAGE_APP", "text": "HELP"},
+    }
+    assert channel_help_fingerprint(packet, 5678, 1) == "1:000004d2:0000002a"
+    for changes in (
+        {"from": 5678},
+        {"from": True},
+        {"id": 0},
+        {"to": 5678},
+        {"channel": 0},
+        {"channel": True},
+        {"decoded": {"portnum": "TEXT_MESSAGE_APP", "text": "please help"}},
+        {"decoded": {"portnum": "TEXT_MESSAGE_APP", "text": "help\x00"}},
+        {"decoded": {"portnum": "ROUTING_APP", "text": "help"}},
+    ):
+        assert channel_help_fingerprint(packet | changes, 5678, 1) is None

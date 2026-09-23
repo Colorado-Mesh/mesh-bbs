@@ -197,26 +197,25 @@ def test_reply_creates_draft_before_publication_and_preserves_parent(
     assert any(p.parent_id == reply.post_id and p.thread_id == parent.post_id for p in children)
 
 
-def test_news_requires_editor_for_issues_but_allows_public_replies(service: CommandService) -> None:
-    assert "editor" in service.handle(BOB, "new news Forged newsletter")
+def test_news_is_reserved_for_imports_including_replies(service: CommandService) -> None:
+    issue = service.store.import_article("colorado", "september", "news", "September", "Updates")
+    for actor in (BOB, EDITOR):
+        for command in (
+            "new news Forged",
+            "post news Fake | Forged",
+            f"reply {issue.post_id} Thanks",
+        ):
+            assert "read-only" in service.handle(actor, command)
     assert service.store.db.execute("SELECT count(*) FROM drafts").fetchone()[0] == 0
-    draft = draft_id(service.handle(EDITOR, "new news September"))
-    service.handle(EDITOR, f"add {draft} 1 Colorado Mesh network updates.")
-    assert service.handle(EDITOR, f"publish {draft}").startswith("Saved locally")
-    issue = service.store.list_posts("news")[0]
-    reply = draft_id(service.handle(BOB, f"reply {issue.post_id} Thank you!"))
-    assert service.handle(BOB, f"publish {reply}").startswith("Saved locally")
-    assert len(service.store.list_posts("news")) == 1
-    assert len(service.store.list_posts("news", thread_id=issue.post_id)) == 2
-    assert issue.post_id[:12] in service.handle(BOB, "news")
-    assert "Colorado Mesh network updates." in service.handle(BOB, "news latest")
+    assert "September" in service.handle(BOB, "news")
+    assert "Updates" in service.handle(BOB, "news latest")
 
 
-def test_editor_revoked_before_publish_cannot_publish_issue(service: CommandService) -> None:
-    draft = draft_id(service.handle(EDITOR, "new news Issue"))
-    service.handle(EDITOR, f"add {draft} 1 Content")
-    restricted = CommandService(service.store, editors=())
-    assert "editor" in restricted.handle(EDITOR, f"publish {draft}")
+def test_legacy_news_draft_cannot_publish_after_upgrade(service: CommandService) -> None:
+    draft = service.store.new_draft(EDITOR, "general", "Old draft")
+    service.store.add_part(EDITOR, draft, 1, "Content")
+    service.store.db.execute("UPDATE drafts SET board='news' WHERE draft_id=?", (draft,))
+    assert "read-only" in service.handle(EDITOR, f"publish {draft}")
     assert not service.store.list_posts("news")
     assert service.store.draft(EDITOR, draft)[0]["published"] is None
 
@@ -326,12 +325,12 @@ def test_invalid_commands_return_bounded_errors(service: CommandService, command
 @pytest.mark.parametrize("budget", [0, 63, 8193])
 def test_invalid_response_budget_is_rejected(service: CommandService, budget: int) -> None:
     with pytest.raises(BBSError, match="Response limit"):
-        service.handle(ALICE, "help", max_bytes=budget)
+        service.handle(ALICE, "commands", max_bytes=budget)
 
 
 def test_help_boards_and_empty_states_fit_small_budget(service: CommandService) -> None:
     assert service.handle(ALICE, "more", max_bytes=64).startswith("No open page")
-    help_text = collect_pages(service, ALICE, service.handle(ALICE, "help", max_bytes=64), 64)
+    help_text = collect_pages(service, ALICE, service.handle(ALICE, "commands", max_bytes=64), 64)
     assert "new BOARD TITLE" in help_text and "publish DRAFT" in help_text
     assert "Send one command per DM" in help_text
     assert "Send more for the next page" in help_text
@@ -339,7 +338,7 @@ def test_help_boards_and_empty_states_fit_small_budget(service: CommandService) 
     assert "read ID: full post" in help_text
     assert "general" in service.handle(ALICE, "boards", max_bytes=64)
     assert service.handle(ALICE, "threads general", max_bytes=64) == "No threads yet."
-    assert service.handle(ALICE, "news", max_bytes=64).startswith("No newsletter issues")
+    assert service.handle(ALICE, "news", max_bytes=64).startswith("No posts here yet")
 
 
 def test_unknown_board_is_an_error_instead_of_an_empty_listing(service: CommandService) -> None:

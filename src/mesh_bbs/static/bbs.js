@@ -6,6 +6,8 @@
   const openButton = byId("signin-open");
   const signout = byId("signout");
   const form = byId("compose-form");
+  const boardForm = byId("board-form");
+  let creatingBoard = false;
   let user = null;
   let token = "";
   let draft = null;
@@ -56,15 +58,16 @@
     byId("account-name").textContent = user ? user.actor : "Public reading";
     openButton.hidden = Boolean(user);
     signout.hidden = !user;
+    if (boardForm) byId("create-board").disabled = creatingBoard || !secure || !user;
     if (!form) return;
     const wrongActor = draft.actor && user && draft.actor !== user.actor;
-    const editorOnly = form.dataset.board === "news" && !form.dataset.parent;
+    const readOnly = form.dataset.board === "news";
     let message = user ? `Posting as ${user.actor}.` : "Sign in with your contributor key to publish.";
     if (!secure) message = "Use HTTPS, or open this host on localhost, to sign in and post.";
     else if (wrongActor) message = `This draft belongs to ${draft.actor}. Sign in as that contributor, or discard the draft.`;
-    else if (user && editorOnly && !user.editor) message = "An editor key is needed to start a newsletter. You can still reply to existing issues.";
+    else if (readOnly) message = "News is read-only; automatic imports only.";
     byId("compose-access").textContent = message;
-    byId("publish").disabled = submitting || draftConflict || !secure || !user || wrongActor || (editorOnly && !user.editor);
+    byId("publish").disabled = submitting || draftConflict || !secure || !user || wrongActor || readOnly;
     byId("publish").textContent = submitting ? "Saving…" : draft.pending ? "Retry publication" : "Publish post";
     byId("post-title").readOnly = Boolean(draft.pending);
     byId("post-body").readOnly = Boolean(draft.pending);
@@ -126,6 +129,22 @@
     user = null;
     storage("sessionStorage", "removeItem", "mesh-bbs-access");
     updateAccount();
+  });
+
+  if (boardForm) boardForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!secure || !user || creatingBoard) return;
+    creatingBoard = true;
+    updateAccount();
+    try {
+      const result = await api("/api/boards", { board: byId("board-name").value.trim() });
+      location.assign(`/new/${encodeURIComponent(result.board)}`);
+    } catch (error) {
+      byId("board-message").textContent = error.status ? error.message : "Connection lost. Retry with the same board name; it will not create a duplicate.";
+    } finally {
+      creatingBoard = false;
+      updateAccount();
+    }
   });
 
   if (form) {

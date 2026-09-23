@@ -160,11 +160,29 @@ Operators terminating TLS at a reverse proxy set `public_url` to the external
 HTTPS origin. The web server validates the origin and key before publication;
 public reading does not grant write privileges.
 
-The publication service rechecks contributor revocation and editorial
-permission in the write transaction. Only editors may start `news` issues;
-contributors may reply to them. Publication operation IDs provide durable
+The publication service rechecks contributor revocation and board policy in the
+write transaction. `news` accepts automatic imports only; editor accounts cannot
+post or reply there. Publication operation IDs provide durable
 retries, and changing content under an existing ID is rejected. Thirty new
 publications per contributor per minute are permitted; receipt replays do not
 consume another publication allowance. The web interface stores the current
 operation with its draft so retrying a lost response does not create a second
 post. A saved-local receipt still makes no claim about federation delivery.
+
+
+## Community boards and guided conversations
+
+A signed `board` event announces an empty community board. Its ID is derived from
+the region and slug. It never projects into a post. New posts can arrive before
+the board event; a peer with an explicit `allowed_boards = ["*"]` grant may add
+the named board. Ordinary explicit board lists do not expand automatically.
+Federation inventory replies always contain concrete board names, and each event
+still needs a matching signing-origin grant. Upgrade cooperating hosts before
+enabling the new board-event/wildcard extension; older hosts do not support it.
+
+Numbered DM pages retain bounded snapshots so concurrent arrivals cannot change
+the selected target. Menu state, drafts, post publication, and request receipts
+share the store transaction. Browse-only sessions expire after a day; draft
+sessions remain resumable. Post readers use revision-bound cursors, invalidated
+when the post is removed. Packet terminal sessions retain their explicit command
+allowlist and do not enter the unrestricted DM menu.

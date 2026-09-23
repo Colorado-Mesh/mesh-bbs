@@ -109,6 +109,13 @@ class WebAccess:
         with self.store.transaction():
             return self._user(digest)
 
+    def create_board(self, user: WebUser, payload: dict[str, Any]) -> str:
+        if set(payload) != {"board"} or not isinstance(payload["board"], str):
+            raise BBSError("Expected a board name")
+        with self.store.transaction():
+            current = self._user(user._token_hash, user.actor)
+            return self.store.create_board(current.actor, payload["board"])
+
     def publish(self, user: WebUser, payload: dict[str, Any]) -> Post:
         if not isinstance(payload, dict) or set(payload) != _FIELDS:
             raise BBSError("Expected board, title, body, parent_id, and operation")
@@ -131,8 +138,8 @@ class WebAccess:
             raise BBSError("Unknown board")
         with self.store.transaction():
             current = self._user(user._token_hash, user.actor)
-            if not parent_id and board == "news" and not current.editor:
-                raise AccessDenied("Newsletter issues require an editor", status=403)
+            if board == "news":
+                raise AccessDenied("News is read-only; automatic imports only", status=403)
             operation = "web:" + operation
             previous = self.store.db.execute(
                 "SELECT 1 FROM receipts WHERE actor=? AND operation=?",

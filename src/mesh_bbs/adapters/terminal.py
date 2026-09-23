@@ -48,7 +48,7 @@ class _TerminalCommands(CommandService):
     ) -> None:
         if not allowed_boards or any(board not in service.store.boards for board in allowed_boards):
             raise BBSError("Select at least one configured public board for this terminal")
-        super().__init__(service.store, editors=())
+        super().__init__(service.store, editors=(), guided=False)
         self.actor = actor
         self.allowed_boards = tuple(dict.fromkeys(allowed_boards))
         self.allow_posts = allow_posts

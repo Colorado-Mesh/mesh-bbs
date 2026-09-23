@@ -109,7 +109,8 @@ class PeerConfig:
         if hashlib.sha256(bytes.fromhex(self.public_key)).hexdigest() != self.origin:
             raise ValueError("peer origin must be the SHA-256 of its raw public key")
         for board in self.allowed_boards:
-            validate_slug(board, "peer allowed board")
+            if board != "*":
+                validate_slug(board, "peer allowed board")
         if self.reticulum_identity is not None:
             _hex(self.reticulum_identity, "peer reticulum_identity", 32)
         _boolean(self.can_moderate, "peer can_moderate")
@@ -252,7 +253,7 @@ class HostConfig:
         if len(set(identities)) != len(identities):
             raise ValueError("duplicate peer Reticulum identities are not allowed")
         for peer in self.peers:
-            if not set(peer.allowed_boards).issubset(self.boards):
+            if not (set(peer.allowed_boards) - {"*"}).issubset(self.boards):
                 raise ValueError("peer allowed_boards must name configured boards")
         _text(self.bind_host, "bind_host", 255)
         _integer(self.bind_port, "bind_port", 1, 65535)

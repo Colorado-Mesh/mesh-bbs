@@ -13,6 +13,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 MAX_BODY_BYTES = 64 * 1024
+MAX_BOARDS = 32
 HEX_ID = re.compile(r"[0-9a-f]{64}\Z")
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 
@@ -77,8 +78,19 @@ class Event:
                 raise BBSError("Invalid event identifier")
         if self.parent_id and not HEX_ID.fullmatch(self.parent_id):
             raise BBSError("Invalid parent identifier")
-        if self.kind not in {"create", "revise", "remove"} or not 0 < self.clock < 2**63:
+        if self.kind not in {"create", "revise", "remove", "board"} or not 0 < self.clock < 2**63:
             raise BBSError("Invalid event operation")
+        if self.kind == "board" and (
+            self.board == "news"
+            or self.post_id != stable_id(self.region, "board", self.board)
+            or self.parent_id
+            or self.body
+            or self.source_id
+            or self.source_item
+            or self.post_key
+            or self.title != self.board
+        ):
+            raise BBSError("Invalid community board event")
         if self.clock > time.time_ns() // 1_000_000 + 300_000:
             raise BBSError("Event clock is more than five minutes ahead; check host clocks")
         if len(self.post_key) > 256:

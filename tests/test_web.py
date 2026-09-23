@@ -17,7 +17,7 @@ from mesh_bbs.web import ReadOnlyWebServer
 @pytest.fixture
 def server(tmp_path: Path) -> Iterator[ReadOnlyWebServer]:
     store = Store(tmp_path / "bbs.db", "colorado-mesh")
-    store.publish("local:alice", "first", "news", "Newsletter", "Full article")
+    store.import_article("local:alice", "first", "news", "Newsletter", "Full article")
     instance = ReadOnlyWebServer(
         Views(store, "Colorado Mesh", base_url="https://bbs.example.org"), port=0
     )
@@ -194,14 +194,14 @@ def test_pagination_query_is_only_supported_on_lists(server: ReadOnlyWebServer, 
 def test_http_follows_board_and_thread_cursors(server: ReadOnlyWebServer) -> None:
     store = server.views.store
     for number in range(51):
-        store.publish("local:a", f"root-{number}", "news", f"Issue {number}", "Article")
-    original = store.list_posts("news", limit=200)
+        store.publish("local:a", f"root-{number}", "general", f"Issue {number}", "Article")
+    original = store.list_posts("general", limit=200)
     cursor = original[49].post_id
-    status, _, first = request(server, "/boards/news")
+    status, _, first = request(server, "/boards/general")
     assert status == 200
-    assert f'href="/boards/news?after={cursor}"'.encode() in first
-    store.publish("local:a", "new-issue", "news", "Newest issue", "New article")
-    status, _, second = request(server, f"/boards/news?after={cursor}")
+    assert f'href="/boards/general?after={cursor}"'.encode() in first
+    store.publish("local:a", "new-issue", "general", "Newest issue", "New article")
+    status, _, second = request(server, f"/boards/general?after={cursor}")
     assert status == 200
     assert all(f"/threads/{post.post_id}".encode() in second for post in original[50:])
     assert all(f"/threads/{post.post_id}".encode() not in second for post in original[:50])
@@ -211,12 +211,12 @@ def test_http_follows_board_and_thread_cursors(server: ReadOnlyWebServer) -> Non
         store.publish(
             "local:a",
             f"reply-{number}",
-            "news",
+            "general",
             f"Reply {number}",
             "Reply text",
             parent_id=root.post_id,
         )
-    replies = store.list_posts("news", thread_id=root.post_id, limit=200)
+    replies = store.list_posts("general", thread_id=root.post_id, limit=200)
     after = replies[99].post_id
     status, _, first = request(server, f"/threads/{root.post_id}")
     assert status == 200

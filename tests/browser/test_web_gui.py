@@ -94,8 +94,9 @@ def bbs(tmp_path):
         draft = reply.split()[2]
         saved = service.handle("meshtastic:11223344", f"publish {draft}")
         seeds["reply"] = store.get_post(saved.split()[3].rstrip("."))
-        issue = service.handle("local:operator", "@issue post news September issue | Network news.")
-        seeds["issue"] = store.get_post(issue.split()[3].rstrip("."))
+        seeds["issue"] = store.import_article(
+            "colorado", "issue", "news", "September issue", "Network news."
+        )
         views = Views(store, "Colorado Mesh browser pilot")
         server = ReadOnlyWebServer(views, port=0, access=access)
         server.start()
@@ -143,10 +144,10 @@ def test_public_board_navigation_shows_shared_protocol_threads(page, bbs):
     assert page.context.cookies() == []
 
 
-def test_editor_preview_draft_refresh_and_newsletter_publication(page, bbs):
+def test_editor_preview_draft_refresh_and_community_publication(page, bbs):
     page.goto(bbs.base_url + "/connect")
     sign_in(page, bbs, editor=True)
-    page.goto(bbs.base_url + "/boards/news")
+    page.goto(bbs.base_url + "/boards/general")
     page.get_by_role("link", name="New post", exact=True).click()
     expect(page.get_by_role("button", name="Publish post", exact=True)).to_be_enabled()
     title = "October newsletter"
@@ -163,12 +164,12 @@ def test_editor_preview_draft_refresh_and_newsletter_publication(page, bbs):
     expect(page.locator("#account-name")).to_have_text("web:alice")
     page.get_by_role("button", name="Publish post", exact=True).click()
     post = saved_post(page, bbs)
-    assert (post.author, post.board, post.title, post.body) == ("web:alice", "news", title, body)
+    assert (post.author, post.board, post.title, post.body) == ("web:alice", "general", title, body)
     assert post.thread_id == post.post_id and not post.parent_id
     expect(page.locator("article .post-body")).to_contain_text("<img src=x onerror=")
     assert page.locator("article .post-body img").count() == 0
     assert page.evaluate("window.injected") is None
-    assert page.evaluate("localStorage.getItem('mesh-bbs-draft:news:')") is None
+    assert page.evaluate("localStorage.getItem('mesh-bbs-draft:general:')") is None
     assert bbs.service.handle("reticulum:" + "b2" * 16, f"read {post.post_id}", max_bytes=4096) == (
         f"{post.post_id[:12]} {title}\n{body}"
     )
@@ -177,8 +178,8 @@ def test_editor_preview_draft_refresh_and_newsletter_publication(page, bbs):
 def test_contributor_reply_targets_selected_message_and_cannot_start_news(page, bbs):
     page.goto(bbs.base_url + "/new/news")
     sign_in(page, bbs)
-    expect(page.locator("#compose-access")).to_contain_text("An editor key is needed")
-    expect(page.get_by_role("button", name="Publish post", exact=True)).to_be_disabled()
+    expect(page.locator("main")).to_contain_text("News is read-only")
+    expect(page.get_by_role("button", name="Publish post", exact=True)).to_have_count(0)
     selected = bbs.seeds["reply"]
     page.goto(bbs.base_url + "/posts/" + selected.post_id)
     page.get_by_role("link", name="Reply", exact=True).click()
@@ -329,7 +330,24 @@ def test_public_reading_and_protocol_help_work_without_javascript(browser, bbs):
         expect(page.locator("article")).to_contain_text("LXMF workshop")
         page.get_by_role("link", name="Connect over a mesh", exact=True).click()
         expect(page.locator("main")).to_contain_text("From MeshCore or Meshtastic")
-        expect(page.locator("main")).to_contain_text("@meetup-1 post general Saturday meetup")
+        expect(page.locator("main")).to_contain_text("DM help to see a numbered menu")
         expect(page.get_by_role("button", name="Sign in to post", exact=True)).not_to_be_visible()
     finally:
         context.close()
+
+
+def test_contributor_creates_board_and_posts_while_news_stays_read_only(page, bbs):
+    page.goto(bbs.base_url + "/new-board")
+    sign_in(page, bbs)
+    page.get_by_label("Board name", exact=True).fill("trail-reports")
+    page.get_by_role("button", name="Create board", exact=True).click()
+    page.wait_for_url("**/new/trail-reports")
+    page.get_by_label("Title", exact=True).fill("Saturday hike")
+    page.get_by_label("Message", exact=True).fill("Meet at nine.")
+    page.get_by_role("button", name="Publish post", exact=True).click()
+    post = saved_post(page, bbs)
+    assert post.board == "trail-reports" and post.author == "web:sam"
+    page.goto(bbs.base_url + "/boards/news")
+    expect(page.get_by_role("link", name="New post", exact=True)).to_have_count(0)
+    page.goto(bbs.base_url + "/posts/" + bbs.seeds["issue"].post_id)
+    expect(page.get_by_role("link", name="Reply", exact=True)).to_have_count(0)
