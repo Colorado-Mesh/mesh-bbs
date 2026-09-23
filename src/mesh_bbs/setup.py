@@ -15,6 +15,7 @@ from mesh_bbs.config import (
     save_config,
     validate_slug,
 )
+from mesh_bbs.markdown_source import COLORADO_NEWSLETTER_BASE
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -55,7 +56,13 @@ def run_setup(config_path: Path | None = None) -> Path:
     host_name = _ask("Name for this host", f"{community} / {socket.gethostname()}")
     data_dir = default_data_dir(region)
     feeds = (
-        (FeedConfig("colorado-mesh-blog", "https://blog.coloradomesh.org/feed.xml"),)
+        (
+            FeedConfig(
+                "colorado-mesh-blog",
+                "https://blog.coloradomesh.org/feed.xml",
+                newsletter_markdown_base_url=COLORADO_NEWSLETTER_BASE,
+            ),
+        )
         if choice == "1"
         else ()
     )
@@ -67,8 +74,8 @@ def run_setup(config_path: Path | None = None) -> Path:
     print("No public peers are configured. Radio connections are disabled.")
     if feeds:
         print("Colorado Mesh blog import is configured: https://blog.coloradomesh.org/feed.xml")
-        print("This imports announcements and newsletter introductions when the service runs.")
-        print("Linked newsletter PDFs are not imported as full article text.")
+        print("Blog posts and published newsletter Markdown sync every 15 minutes.")
+        print("The text stays readable over the web, NomadNet, and paged radio replies.")
     else:
         print("Add your community's RSS/Atom source to the config to import newsletters.")
     quoted = shlex.quote(str(target))

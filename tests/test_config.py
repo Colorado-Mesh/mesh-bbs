@@ -18,6 +18,7 @@ from mesh_bbs.config import (
     save_config,
     validate_slug,
 )
+from mesh_bbs.markdown_source import COLORADO_NEWSLETTER_BASE
 from mesh_bbs.setup import run_setup
 
 
@@ -166,7 +167,11 @@ def test_setup_colorado_preset_does_not_enable_transports(
     assert config.name == "My host"
     assert config.region == "colorado-mesh"
     assert config.feeds == (
-        FeedConfig("colorado-mesh-blog", "https://blog.coloradomesh.org/feed.xml"),
+        FeedConfig(
+            "colorado-mesh-blog",
+            "https://blog.coloradomesh.org/feed.xml",
+            newsletter_markdown_base_url=COLORADO_NEWSLETTER_BASE,
+        ),
     )
     assert not config.reticulum.enabled
     assert not config.meshcore.enabled

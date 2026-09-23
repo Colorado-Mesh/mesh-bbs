@@ -242,13 +242,33 @@ the command, not reception by another node. Meshtastic does not use this option.
 
 The Colorado Mesh setup preset imports its
 [blog feed](https://blog.coloradomesh.org/feed.xml) with source ID
-`colorado-mesh-blog`. It currently supplies blog announcements and newsletter
-introductions, rather than extracting full text from linked newsletter PDFs.
+`colorado-mesh-blog`. Blog articles come from the full-content Atom feed generated
+by the organization's `blog` repository. The preset also sets
+`newsletter_markdown_base_url` to
+`https://raw.githubusercontent.com/Colorado-Mesh/advocacy/main/newsletter/issues/`.
+When a published feed entry links an issue PDF under that directory, the importer
+reads the issue's sibling `draft.md`, converts it to plain text, and updates the
+existing BBS post. It does not scan unpublished issue directories or extract PDFs.
+Links, headings, and image captions are retained as text; images are not fetched.
+
+The service checks every 15 minutes, including Markdown corrections when the feed
+itself has not changed. The post ID, publication date, and replies stay intact;
+unchanged imports create no duplicate posts or revisions. A failed text fetch
+keeps the previous post and retries with backoff. Existing installations can add
+the `newsletter_markdown_base_url` above to their `[[feeds]]` section and run
+`import-feeds` once to upgrade their already imported newsletter introductions.
+
 For another existing newsletter, add its actual RSS/Atom URL and a stable `source_id`
 to the config. Every importer for that source must use the same ID and board.
 The importer retains item IDs across retries and revisions. Summary-only feed
 items remain summaries; the service does not promise full text missing from the
-source. Choose a full-content feed when offline reading needs the whole issue.
+source. Choose a full-content feed when offline reading needs the whole issue, or
+configure the Markdown directory if it uses the same `YYYY-MM/draft.md` layout.
+
+NomadNet's home page shows the ten newest entries across boards, with dates and
+direct links to full posts and conversations. Board listings also show newest
+threads first. Replies remain in conversation order, and page caching is disabled
+so reopening a page checks the current local copy.
 
 Check a configured source once with:
 

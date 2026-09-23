@@ -16,6 +16,7 @@ from mesh_bbs.store import Post, Store
 BOARD_LIMIT = 50
 THREAD_LIMIT = 100
 FEED_LIMIT = 20
+NOMAD_RECENT_LIMIT = 10
 _INVALID_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]")
 _POST_ID = re.compile(r"[0-9a-f]{8,64}\Z")
 _ATOM = "http://www.w3.org/2005/Atom"
@@ -425,6 +426,33 @@ class Views:
                 pass  # Replicated metadata must not prevent reading the feed.
         return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
+    @staticmethod
+    def _nomad_title(post: Post) -> str:
+        title = Views._title(post)
+        return "`!`Fcef\n" + _literal(title) + "`f`!\n"
+
+    @staticmethod
+    def _nomad_meta(post: Post) -> str:
+        try:
+            stamp = (
+                datetime.fromisoformat(post.created_at)
+                .astimezone(UTC)
+                .strftime("%Y-%m-%d %H:%M UTC")
+            )
+        except (ValueError, OverflowError):
+            stamp = post.created_at
+        return "`F9ab\n" + _literal(f"{stamp} / {post.board}\nFrom: {post.author}") + "`f\n"
+
+    def _nomad_rows(self, posts: list[Post]) -> str:
+        return "\n".join(
+            self._nomad_title(post)
+            + self._nomad_meta(post)
+            + _micron_link("Read full post", "post", id=post.post_id).rstrip("\n")
+            + "  "
+            + _micron_link("Open thread", "thread", id=post.post_id)
+            for post in posts
+        )
+
     def page(self, path: str, variables: dict[str, Any]) -> bytes:
         """Handle the four registered NomadNet paths and bounded request fields."""
         if (
@@ -450,21 +478,32 @@ class Views:
                 or (after_id and not _POST_ID.fullmatch(after_id))
             ):
                 return self._page_error()
-            content = ">Mesh BBS\n" + _literal(self.name)
-            content += _literal("Region: " + self.store.region)
+            content = "#!c=0\n>BBS / `F7dcCOMMUNITY BULLETIN BOARD`f\n"
+            content += "`!\n" + _literal(self.name) + "`!\n"
+            content += "`F9ab\n" + _literal("Region: " + self.store.region) + "`f\n\n"
             if path == "/page/index.mu":
-                content += ">Boards\n"
+                content += ">>Browse boards\n"
                 for configured_board in self.store.boards:
                     content += _micron_link(configured_board, "board", board=configured_board)
-                content += "\nSend posting commands to the service's LXMF address.\n"
+                recent = [
+                    post
+                    for configured_board in self.store.boards
+                    for post in self.store.list_posts(configured_board, limit=NOMAD_RECENT_LIMIT)
+                ]
+                recent.sort(key=lambda post: (post.created_at, post.post_id), reverse=True)
+                content += "\n>>`F7dcLatest entries`f\nNewest first across all boards.\n\n"
+                content += self._nomad_rows(recent[:NOMAD_RECENT_LIMIT])
+                if not recent:
+                    content += "No entries yet.\n"
+                content += "\n>>Take part\nRead an entry in full, or open its thread for replies.\n"
+                content += "Send posting commands to the service's LXMF address. Start with help.\n"
             elif path == "/page/board.mu":
                 board = self._board(board)
                 content += _micron_link("All boards", "index")
                 content += _literal("Board: " + board)
                 posts, next_id = self._listing(board, BOARD_LIMIT, after_id)
-                for post in posts:
-                    content += _literal(self._title(post) + "\nFrom: " + post.author)
-                    content += _micron_link("Open thread", "thread", id=post.post_id)
+                content += "\n>>`F7dcEntries / newest first`f\n\n"
+                content += self._nomad_rows(posts)
                 content += f"\nShowing up to {BOARD_LIMIT} threads per page, newest first.\n"
                 if not posts:
                     content += "No threads on this page.\n"
@@ -479,10 +518,14 @@ class Views:
                     posts, next_id = self._listing(
                         selected.board, THREAD_LIMIT, after_id, selected.thread_id
                     )
+                    content += (
+                        "\n>>`F7dcConversation`f\nOriginal post and replies in reading order.\n\n"
+                    )
                     for post in posts:
-                        content += _literal(self._title(post) + "\nFrom: " + post.author)
+                        content += self._nomad_title(post) + self._nomad_meta(post)
                         content += _literal("Removed post." if post.deleted else post.body[:240])
                         content += _micron_link("Read full post", "post", id=post.post_id)
+                        content += "\n"
                     content += f"\nShowing up to {THREAD_LIMIT} posts per page, oldest first.\n"
                     if next_id:
                         content += _micron_link(
@@ -491,7 +534,7 @@ class Views:
                     if after_id:
                         content += _micron_link("First page", "thread", id=selected.post_id)
                 else:
-                    content += _literal(self._title(selected) + "\nFrom: " + selected.author)
+                    content += "\n" + self._nomad_title(selected) + self._nomad_meta(selected)
                     if selected.parent_id:
                         content += _micron_link("Parent post", "post", id=selected.parent_id)
                     content += _literal(

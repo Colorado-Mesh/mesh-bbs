@@ -67,6 +67,7 @@ class FeedConfig:
     url: str
     board: str = "news"
     poll_seconds: int = 900
+    newsletter_markdown_base_url: str | None = None
 
     def __post_init__(self) -> None:
         validate_slug(self.source_id, "feed source_id")
@@ -78,6 +79,20 @@ class FeedConfig:
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("feed url must not contain credentials")
         _integer(self.poll_seconds, "feed poll_seconds", 60, 86400)
+        if self.newsletter_markdown_base_url is not None:
+            _text(self.newsletter_markdown_base_url, "newsletter Markdown base URL", 2048)
+            base = urlsplit(self.newsletter_markdown_base_url)
+            if (
+                base.scheme != "https"
+                or not base.hostname
+                or base.username is not None
+                or base.password is not None
+                or base.query
+                or base.fragment
+                or not base.path.endswith("/")
+                or any(part in {".", ".."} for part in base.path.split("/"))
+            ):
+                raise ValueError("newsletter Markdown base must be an HTTPS directory URL")
 
 
 @dataclass(frozen=True)
@@ -298,7 +313,11 @@ def load_config(path: Path) -> HostConfig:
         raise ValueError(f"missing required configuration option: {error.args[0]}") from error
     feeds = []
     for values in _tables(data.get("feeds", []), "feeds"):
-        _keys(values, {"source_id", "url", "board", "poll_seconds"}, "feed")
+        _keys(
+            values,
+            {"source_id", "url", "board", "poll_seconds", "newsletter_markdown_base_url"},
+            "feed",
+        )
         try:
             feeds.append(FeedConfig(**values))
         except TypeError as error:

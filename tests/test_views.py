@@ -135,6 +135,53 @@ def test_nomadnet_navigation_uses_full_identifiers_and_request_variables(store: 
     assert "Revision: " + post.revision_id in document
 
 
+def test_nomadnet_home_lists_recent_entries_across_boards_newest_first(store: Store) -> None:
+    recent = store.import_article(
+        "blog",
+        "new",
+        "news",
+        "Newest newsletter",
+        "Full article",
+        published_at="2026-09-21T00:00:00+00:00",
+    )
+    old = store.import_article(
+        "blog",
+        "old",
+        "news",
+        "Older newsletter",
+        "Full article",
+        published_at="2026-08-21T00:00:00+00:00",
+    )
+    oldest = store.import_article(
+        "other",
+        "oldest",
+        "general",
+        "Oldest community post",
+        "Body",
+        published_at="2026-07-21T00:00:00+00:00",
+    )
+    views = Views(store, "Colorado Mesh BBS")
+    home = views.page("/page/index.mu", {}).decode()
+    assert home.startswith("#!c=0\n")  # A re-open must not show a stale cached list.
+    assert home.index(recent.title) < home.index(old.title) < home.index(oldest.title)
+    assert "2026-09-21 00:00 UTC" in home
+    assert "Latest entries" in home
+    assert "depth23jellyfin" not in home
+    board = views.page("/page/board.mu", {"var_board": "news"}).decode()
+    assert board.index(recent.title) < board.index(old.title)
+
+
+def test_nomadnet_home_bounds_recent_entries_and_excludes_removed_posts(store: Store) -> None:
+    for number in range(14):
+        store.publish("local:a", str(number), "general", f"Entry {number}", "Body")
+    newest = store.list_posts("general")[0]
+    store.revise("local:a", "remove", newest.post_id, newest.title, "", remove=True)
+    home = Views(store, "BBS").page("/page/index.mu", {}).decode()
+    links = re.findall(r"Open thread`:/page/thread.mu`id=([0-9a-f]{64})", home)
+    assert links == [post.post_id for post in store.list_posts("general", limit=10)]
+    assert newest.post_id not in home
+
+
 def test_nomadnet_untrusted_markup_stays_inside_literal_blocks(store: Store) -> None:
     attack = "`=\n`[Steal identity`https://evil.invalid]\n`<password`>\n`=\n\\`=\n>Title\n#Hidden\n`{remote}"
     post = store.publish(attack[:200], "attack", "news", attack[:200], attack + "\x1b[31m")

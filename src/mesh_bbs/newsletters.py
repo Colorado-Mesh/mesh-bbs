@@ -7,12 +7,13 @@ import secrets
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from mesh_bbs.config import FeedConfig
 from mesh_bbs.events import MAX_BODY_BYTES, BBSError, stable_id
 from mesh_bbs.feeds import FeedError, FeedItem, FetchResult, fetch_feed, parse_feed
+from mesh_bbs.markdown_source import markdown_text, newsletter_text_url
 from mesh_bbs.store import Store
 
 MAX_BACKOFF_SECONDS = 86400
@@ -143,6 +144,27 @@ class NewsletterImporter:
             raise FeedError("Newsletter article including attribution exceeds the 64 KiB limit")
         return body
 
+    def _articles(self, content: bytes) -> tuple[tuple[FeedItem, str], ...]:
+        deadline = time.monotonic() + 120
+        articles = []
+        sources: dict[str, str] = {}
+        for item in parse_feed(content).items:
+            base = self.feed.newsletter_markdown_base_url
+            source = newsletter_text_url(item, base) if base else None
+            if source:
+                if time.monotonic() > deadline:
+                    raise FeedError("Newsletter text imports exceeded their time budget")
+                if source not in sources:
+                    response = self.fetcher(source)
+                    if response.status_code != 200 or response.content is None:
+                        raise FeedError("Newsletter Markdown source did not return complete text")
+                    sources[source] = markdown_text(response.content, source)
+                item = replace(
+                    item, body=f"Text source: {source}\n\n{sources[source]}", summary_only=False
+                )
+            articles.append((item, self._body(item)))
+        return tuple(articles)
+
     def _finish(
         self,
         claim: _Claim,
@@ -232,14 +254,20 @@ class NewsletterImporter:
         if isinstance(claim, PollOutcome):
             return claim
         try:
-            response = self.fetcher(self.feed.url, claim.etag, claim.last_modified)
+            # A newsletter's Markdown can be corrected without changing the
+            # blog feed. Recheck both when linked text importing is enabled.
+            validators = (
+                (None, None)
+                if self.feed.newsletter_markdown_base_url
+                else (claim.etag, claim.last_modified)
+            )
+            response = self.fetcher(self.feed.url, *validators)
             if response.status_code == 304:
-                if claim.etag is None and claim.last_modified is None:
+                if validators == (None, None):
                     raise FeedError("Feed server returned 304 without a conditional request")
                 articles: tuple[tuple[FeedItem, str], ...] = ()
             elif response.status_code == 200 and response.content is not None:
-                parsed = parse_feed(response.content)
-                articles = tuple((item, self._body(item)) for item in parsed.items)
+                articles = self._articles(response.content)
             else:
                 raise FeedError("Feed did not return a complete 200 response or a valid 304")
             finished_at = self.clock() if now is None else now
