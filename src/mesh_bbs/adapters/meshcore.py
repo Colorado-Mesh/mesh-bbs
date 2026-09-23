@@ -21,6 +21,8 @@ from typing import Any
 from mesh_bbs.advertisements import AdvertSchedule
 from mesh_bbs.airtime import AirtimeLimiter
 from mesh_bbs.announcements import AnnouncementOutbox
+from mesh_bbs.channel_help import ChannelHelpGate
+from mesh_bbs.commands import display_text
 
 from .base import (
     DeliveryError,
@@ -31,6 +33,28 @@ from .base import (
 )
 
 LOG = logging.getLogger(__name__)
+
+
+def channel_help_fingerprint(payload: Mapping[str, Any], channel: int) -> str | None:
+    """Channel names are untrusted; accept only a public, read-only help trigger."""
+    text, stamp = payload.get("text"), payload.get("sender_timestamp")
+    if (
+        payload.get("type") != "CHAN"
+        or payload.get("txt_type") != 0
+        or type(payload.get("channel_idx")) is not int
+        or payload["channel_idx"] != channel
+        or not isinstance(text, str)
+        or "\x00" in text
+        or len(text.encode("utf-8")) > 160
+        or type(stamp) is not int
+        or not 0 <= stamp <= 0xFFFFFFFF
+    ):
+        return None
+    # The companion includes the display-name prefix in channel text ("Name: help").
+    _, separator, body = text.partition(": ")
+    if (body if separator else text).strip().casefold() != "help":
+        return None
+    return sha256(stamp.to_bytes(4, "little") + text.encode("utf-8")).hexdigest()
 
 
 def parse_meshcore_message(
@@ -94,6 +118,9 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         self.announcements = announcements
         self.announcement_channel = announcement_channel
         self.announcement_channel_name = announcement_channel_name
+        self._help_gate = (
+            ChannelHelpGate(announcements.store, "meshcore") if announcements is not None else None
+        )
         validate_connection(serial_port, tcp_host, tcp_port)
         if not 64 <= max_bytes <= 160:
             raise ValueError("MeshCore max_bytes must be between 64 and 160")
@@ -113,6 +140,8 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         self.max_attempts = max_attempts
         self._client: Any = None
         self._subscription: Any = None
+        self._channel_subscription: Any = None
+        self._channel_help_task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
         self._advert_task: asyncio.Task[None] | None = None
         self.advert_interval_seconds = advert_interval_seconds
@@ -156,6 +185,10 @@ class MeshCoreAdapter(QueuedRadioAdapter):
                 raise ConnectionError("Could not load MeshCore contacts")
             self._subscription = client.subscribe(EventType.CONTACT_MSG_RECV, self._receive)
             self._start_worker()
+            if self._help_gate is not None:
+                self._channel_subscription = client.subscribe(
+                    EventType.CHANNEL_MSG_RECV, self._receive_channel
+                )
             await client.start_auto_message_fetching()
             self._start_announcements(
                 self.announcements, self._prepare_announcement, self._send_announcement
@@ -172,6 +205,49 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         message = parse_meshcore_message(event.payload, self._client.contacts)
         if message is not None:
             self.enqueue(message)
+
+    def _receive_channel(self, event: Any) -> None:
+        if (
+            not self._accepting
+            or self._help_gate is None
+            or self.announcement_channel is None
+            or not isinstance(event.payload, Mapping)
+            or (self._channel_help_task is not None and not self._channel_help_task.done())
+        ):
+            return
+        fingerprint = channel_help_fingerprint(event.payload, self.announcement_channel)
+        if fingerprint is not None:
+            self._channel_help_task = asyncio.create_task(self._answer_channel_help(fingerprint))
+
+    async def _answer_channel_help(self, fingerprint: str) -> None:
+        gate, limiter = self._help_gate, self.airtime_limiter
+        assert gate is not None and limiter is not None
+        reservation = None
+        try:
+            if not gate.available(fingerprint, time.time()):
+                return
+            max_bytes = await self._prepare_announcement()
+            name = " ".join(display_text(self._client.self_info["name"]).split())
+            board = "news" if "news" in gate.store.boards else gate.store.boards[0]
+            text = (
+                f"BBS: DM {name}, one command at a time: "
+                f"boards | threads {board} | read ID | more | help"
+            )
+            if len(text.encode()) > max_bytes:
+                text = "BBS: DM this node: boards, threads BOARD, read ID, more, help"
+            if len(text.encode()) > max_bytes:
+                raise DeliveryError("MeshCore channel help exceeds available packet size")
+            # No public-help backlog: a busy radio stays silent rather than replying late.
+            reservation, _ = limiter.try_reserve(1)
+            if reservation is None or not gate.claim(fingerprint, time.time()):
+                return
+            await self._send_announcement(text)
+            LOG.info("MeshCore channel help accepted by companion")
+        except Exception:
+            LOG.exception("MeshCore channel help failed; no uncertain send retry")
+        finally:
+            if reservation is not None:
+                limiter.finish(reservation)
 
     async def send_reply(self, message: IncomingMessage, text: str) -> None:
         if self._client is None:
@@ -272,7 +348,12 @@ class MeshCoreAdapter(QueuedRadioAdapter):
                 await asyncio.sleep(60)
 
     async def stop(self) -> None:
+        self._accepting = False
         try:
+            if self._channel_help_task is not None:
+                self._channel_help_task.cancel()
+                await asyncio.gather(self._channel_help_task, return_exceptions=True)
+                self._channel_help_task = None
             if self._advert_task is not None:
                 self._advert_task.cancel()
                 await asyncio.gather(self._advert_task, return_exceptions=True)
@@ -285,6 +366,9 @@ class MeshCoreAdapter(QueuedRadioAdapter):
                     if self._subscription is not None:
                         client.unsubscribe(self._subscription)
                         self._subscription = None
+                    if self._channel_subscription is not None:
+                        client.unsubscribe(self._channel_subscription)
+                        self._channel_subscription = None
                     await client.stop_auto_message_fetching()
                 finally:
                     await client.disconnect()

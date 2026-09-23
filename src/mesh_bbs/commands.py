@@ -11,10 +11,12 @@ from mesh_bbs.events import MAX_BODY_BYTES, BBSError, stable_id
 from mesh_bbs.store import Store
 
 HELP = (
-    "boards | threads BOARD | thread ID | read ID | more | news [latest] | "
-    "post BOARD TITLE | TEXT | "
-    "new BOARD TITLE | add DRAFT N TEXT | preview DRAFT | publish DRAFT | "
-    "reply ID TEXT | discard DRAFT"
+    "Send one command per DM. Send more for the next page of any long response.\n"
+    "boards: list boards\nthreads BOARD: newest threads\nread ID: full post\n"
+    "thread ID: replies\nnews: latest newsletter\nreply ID TEXT\n"
+    "post BOARD TITLE | TEXT\n"
+    "Long posts: new BOARD TITLE; add DRAFT N TEXT; preview DRAFT; publish DRAFT; discard DRAFT.\n"
+    "Replace BOARD with a board name, ID with a listed post ID, and DRAFT with your draft ID."
 )
 
 

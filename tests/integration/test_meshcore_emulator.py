@@ -206,6 +206,15 @@ class CompanionEmulator:
     async def next_reply(self):
         return await asyncio.wait_for(self.outgoing.get(), 2)
 
+    async def deliver_channel(self, text, channel=1):
+        self.incoming.append(
+            b"\x11\x08\x00\x00"
+            + bytes([channel, 0xFF, 0])
+            + struct.pack("<I", 1790186400)
+            + text.encode()
+        )
+        await self.frames(b"\x83", fragmented=True)
+
     async def close(self):
         if self.server is not None:
             self.server.close()
@@ -439,6 +448,59 @@ async def test_sdk_channel_notice_is_one_bounded_packet_and_points_to_dm(tmp_pat
         assert f"read {post.post_id[:12]}; more" in text
         assert text.startswith("New [general] New meeting")
         assert not box.poll(time.time())
+    finally:
+        if adapter:
+            await adapter.stop()
+        await radio.close()
+        budget.close()
+        store.close()
+
+
+async def test_sdk_channel_help_then_dm_help_and_more(tmp_path):
+    from mesh_bbs.commands import HELP
+
+    store = Store(tmp_path / "bbs.db", "test")
+    box = AnnouncementOutbox(store, "meshcore")
+    service = CommandService(store)
+    radio = CompanionEmulator()
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test:meshcore")
+    adapter = None
+
+    async def command(message):
+        assert message.sender == ACTOR
+        return service.handle(message.sender, message.text)
+
+    try:
+        port = await radio.start()
+        adapter = MeshCoreAdapter(
+            command,
+            tcp_host="127.0.0.1",
+            tcp_port=port,
+            min_interval=0,
+            airtime_limiter=budget,
+            announcements=box,
+            announcement_channel=1,
+            announcement_channel_name="#bbs",
+        )
+        await adapter.start()
+        await radio.deliver_channel("Reader: help")
+        text = await asyncio.wait_for(radio.channel_notices.get(), 3)
+        assert "DM BBS emulator" in text and "boards | threads news | read ID | more | help" in text
+        first = await exchange(radio, adapter, "help")
+        assert first.startswith("Send one command per DM.")
+        pages = []
+        for _ in range(10):
+            pages.append(first.removesuffix("\n[more]"))
+            if not first.endswith("\n[more]"):
+                break
+            first = await exchange(radio, adapter, "more")
+        assert "".join(pages) == HELP
+        await radio.deliver_channel("Reader: help")  # Repeated packet stays silent.
+        await radio.deliver_channel("Other: help", channel=0)
+        assert "general" in await exchange(radio, adapter, "boards")
+        assert radio.channel_notices.empty()
+        assert not store.list_posts("general")
+        assert adapter.failed == 0
     finally:
         if adapter:
             await adapter.stop()

@@ -50,6 +50,9 @@ links to complete posts and their replies.
 Optional MeshCore `#bbs` and Meshtastic channel notices announce new threads and
 boards, with DM reading instructions. One designated host per protocol announces;
 other hosts stay silent. See [configuration and duplicate prevention](docs/operations.md#channel-announcements).
+On the configured MeshCore channel, send `help` for the BBS contact and reading
+commands. DM `help` to any BBS companion for full instructions; send `more` to
+continue a long reply.
 
 ## Use the board
 

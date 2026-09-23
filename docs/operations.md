@@ -397,6 +397,21 @@ overwrites radio channels automatically. Channel indexes are local to each
 radio, so use the slot containing `#bbs` on that companion. Keep its public
 name recognizable; the Colorado Mesh pilot uses `coloradomesh.org-bbs`.
 
+Sending exactly `help` (case-insensitive) on that MeshCore channel asks the
+designated host for a short reply naming its companion and the DM reading
+commands. Send one command per DM: `help`, `boards`, `threads news`, `read ID`,
+then `more` for subsequent pages. DM `help` explains browsing, replies, and
+creating short or multipart posts; its own longer instructions also use `more`.
+Channel traffic never creates posts or establishes an author's identity.
+
+Only the designated announcement owner answers channel help. There is at most
+one public help response every five minutes, with packet replay suppression for
+24 hours; both survive restarts. A helper response uses one packet from the
+shared airtime budget and is skipped if the budget is exhausted. There is no
+help backlog or automatic retry after an uncertain send. Other channels,
+ordinary conversation, and help embedded in a longer message remain silent.
+The five-minute helper limit is separate from the new-content notice interval.
+
 Meshtastic uses the same announcement options in `[meshtastic]`, with an
 operator-configured secondary channel, for example:
 

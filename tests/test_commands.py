@@ -333,6 +333,10 @@ def test_help_boards_and_empty_states_fit_small_budget(service: CommandService) 
     assert service.handle(ALICE, "more", max_bytes=64).startswith("No open page")
     help_text = collect_pages(service, ALICE, service.handle(ALICE, "help", max_bytes=64), 64)
     assert "new BOARD TITLE" in help_text and "publish DRAFT" in help_text
+    assert "Send one command per DM" in help_text
+    assert "Send more for the next page" in help_text
+    assert "threads BOARD: newest threads" in help_text
+    assert "read ID: full post" in help_text
     assert "general" in service.handle(ALICE, "boards", max_bytes=64)
     assert service.handle(ALICE, "threads general", max_bytes=64) == "No threads yet."
     assert service.handle(ALICE, "news", max_bytes=64).startswith("No newsletter issues")

@@ -238,7 +238,12 @@ def install_meshcore(monkeypatch, radio):
 
     module.MeshCore = SimpleNamespace(create_serial=create_serial)
     module.EventType = SimpleNamespace(
-        ERROR="error", OK="ok", CURRENT_TIME="time", CONTACT_MSG_RECV="direct"
+        ERROR="error",
+        OK="ok",
+        CURRENT_TIME="time",
+        CONTACT_MSG_RECV="direct",
+        CHANNEL_MSG_RECV="channel",
+        CHANNEL_INFO="channel_info",
     )
     monkeypatch.setitem(sys.modules, "meshcore", module)
 
@@ -250,6 +255,7 @@ async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
     adapter = MeshCoreAdapter(help_handler, serial_port="/dev/fake", min_interval=0)
     await adapter.start()
     assert abs(radio.clock - time.time()) < 5
+    assert "channel" not in radio.subscribers  # Non-announcing companions stay silent.
     with pytest.raises(RuntimeError):
         await adapter.start()
     radio.subscribers["direct"](SimpleNamespace(payload=meshcore_payload()))
@@ -264,6 +270,152 @@ async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
     assert adapter.failed == 1
     await adapter.stop()
     assert radio.closed and not radio.fetching and not radio.subscribers
+
+
+@pytest.mark.asyncio
+async def test_meshcore_shutdown_cancels_pending_channel_help(monkeypatch, tmp_path):
+    from mesh_bbs.airtime import AirtimeLimiter
+    from mesh_bbs.announcements import AnnouncementOutbox
+    from mesh_bbs.store import Store
+
+    store = Store(tmp_path / "bbs.db", "test")
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test")
+    radio = FakeMeshCore()
+    install_meshcore(monkeypatch, radio)
+    adapter = MeshCoreAdapter(
+        help_handler,
+        serial_port="/dev/fake",
+        airtime_limiter=budget,
+        announcements=AnnouncementOutbox(store, "meshcore"),
+        announcement_channel=1,
+        announcement_channel_name="#bbs",
+    )
+    try:
+        await adapter.start()
+        await adapter._send_lock.acquire()
+        radio.subscribers["channel"](
+            SimpleNamespace(
+                payload={
+                    "type": "CHAN",
+                    "txt_type": 0,
+                    "channel_idx": 1,
+                    "sender_timestamp": 1790186400,
+                    "text": "Reader: help",
+                }
+            )
+        )
+        pending = adapter._channel_help_task
+        await asyncio.sleep(0)
+        await asyncio.wait_for(adapter.stop(), 1)
+        assert pending.cancelled()
+        assert not radio.subscribers and radio.closed
+        assert budget._db.execute("SELECT count(*) FROM reservations").fetchone()[0] == 0
+    finally:
+        adapter._send_lock.release()
+        await adapter.stop()
+        budget.close()
+        store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["ok", "uncertain", "wrong_channel", "busy", "short_packet"])
+async def test_meshcore_channel_help_is_bounded_owned_and_restart_safe(
+    monkeypatch, tmp_path, outcome
+):
+    from hashlib import sha256
+
+    from mesh_bbs.airtime import AirtimeLimiter
+    from mesh_bbs.announcements import AnnouncementOutbox
+    from mesh_bbs.store import Store
+
+    store = Store(tmp_path / "bbs.db", "test")
+    box = AnnouncementOutbox(store, "meshcore")
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test")
+    radio = FakeMeshCore()
+    radio.self_info = {"name": "coloradomesh.org-bbs"}
+    notices = []
+
+    async def get_channel(index):
+        assert index == 1
+        return SimpleNamespace(
+            type="channel_info",
+            payload={
+                "channel_name": "#other" if outcome == "wrong_channel" else "#bbs",
+                "channel_secret": sha256(b"#bbs").digest()[:16],
+            },
+        )
+
+    async def send_channel(index, text):
+        assert index == 1
+        notices.append(text)
+        if outcome == "uncertain":
+            raise ConnectionError("lost serial response")
+        return SimpleNamespace(type="ok")
+
+    radio.get_channel = get_channel
+    radio.send_chan_msg = send_channel
+    install_meshcore(monkeypatch, radio)
+    if outcome == "busy":
+        held, _ = budget.try_reserve(10)
+        budget.finish(held)
+        held, _ = budget.try_reserve(2)
+        budget.finish(held)
+
+    async def never_handle_channel(message):
+        pytest.fail("Channel text reached the authenticated DM command handler")
+
+    try:
+        for _attempt in range(2):
+            adapter = MeshCoreAdapter(
+                never_handle_channel,
+                serial_port="/dev/fake",
+                min_interval=0,
+                max_bytes=64 if outcome == "short_packet" else 160,
+                airtime_limiter=budget,
+                announcements=box,
+                announcement_channel=1,
+                announcement_channel_name="#bbs",
+            )
+            await adapter.start()
+            receive = radio.subscribers["channel"]
+            event = SimpleNamespace(
+                payload={
+                    "type": "CHAN",
+                    "txt_type": 0,
+                    "channel_idx": 1,
+                    "sender_timestamp": 1790186400,
+                    "text": "Reader: help",
+                }
+            )
+            receive(SimpleNamespace(payload={**event.payload, "channel_idx": 0}))
+            assert adapter._channel_help_task is None
+            receive(event)
+            first = adapter._channel_help_task
+            for _ in range(100):
+                receive(event)
+                assert adapter._channel_help_task is first
+            await asyncio.wait_for(first, 1)
+            receive(event)  # The same event after the previous task completed.
+            await asyncio.wait_for(adapter._channel_help_task, 1)
+            await adapter.stop()
+            assert not radio.subscribers
+        expected = outcome in {"ok", "uncertain", "short_packet"}
+        assert len(notices) == int(expected)
+        if expected:
+            assert "boards" in notices[0] and "read ID" in notices[0] and "more" in notices[0]
+            assert len(notices[0].encode()) <= (64 if outcome == "short_packet" else 139)
+            assert budget._db.execute("SELECT count(*) FROM reservations").fetchone()[0] == 1
+        assert (
+            budget._db.execute(
+                "SELECT count(*) FROM reservations WHERE expires IS NULL"
+            ).fetchone()[0]
+            == 0
+        )
+        assert not store.list_posts("general")
+    finally:
+        await adapter.stop()
+        budget.close()
+        store.close()
 
 
 @pytest.mark.asyncio
