@@ -53,6 +53,9 @@ On either configured radio announcement channel, send `help` for the BBS contact
 DM `help` for a numbered menu: **1 News, 2 Boards, 3 Write/resume**. Reply with a
 number to choose; `next` gets more, `back` returns, and `menu` starts over.
 
+For a complete operator walkthrough, see [community setup](docs/community-setup.md):
+guided connections, other regions, and pairing trusted hosts for automatic sync.
+
 ## Use the board
 
 After setup, initialize the host, create your web contributor key, and start it:

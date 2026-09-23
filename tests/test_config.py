@@ -160,7 +160,7 @@ def test_setup_colorado_preset_does_not_enable_transports(
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    answers = iter(["", "My host"])
+    answers = iter(["", "My host", "n"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     path = run_setup()
     config = load_config(path)
@@ -185,7 +185,9 @@ def test_setup_custom_community_and_invalid_slug_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    answers = iter(["invalid", "2", "Front Range Friends", "../bad", "front-range", "West host"])
+    answers = iter(
+        ["invalid", "2", "Front Range Friends", "../bad", "front-range", "West host", "n"]
+    )
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     path = run_setup(tmp_path / "custom.toml")
     config = load_config(path)

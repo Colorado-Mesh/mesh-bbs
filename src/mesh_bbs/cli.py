@@ -39,6 +39,9 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = result.add_subparsers(dest="action", required=True)
     commands.add_parser("setup", help="Choose Colorado Mesh or another community")
+    commands.add_parser(
+        "configure", help="Set up radios, Reticulum, feeds and web without editing TOML"
+    )
     commands.add_parser("init", help="Create this host's database and print its public identity")
     commands.add_parser("doctor", help="Check the database and enabled dependencies")
     commands.add_parser("serve", help="Serve the web reader and explicitly enabled transports")
@@ -80,6 +83,19 @@ def parser() -> argparse.ArgumentParser:
     revoke_access = access_actions.add_parser("revoke", help="Revoke a key and reserve its name")
     revoke_access.add_argument("name")
     access_actions.add_parser("list", help="List contributors without exposing keys")
+    peers = commands.add_parser("peer", help="Pair explicitly trusted hosts in this community")
+    peer_actions = peers.add_subparsers(dest="peer_action", required=True)
+    export = peer_actions.add_parser("export", help="Export a signed public card, no private keys")
+    export.add_argument("file", type=Path)
+    add = peer_actions.add_parser("add", help="Verify and trust an operator's public peer card")
+    add.add_argument("file", type=Path)
+    add.add_argument(
+        "--boards", default="*", help="Comma-separated boards; * includes future boards"
+    )
+    add.add_argument(
+        "--trust-origin", help="Noninteractive approval: exact verified origin fingerprint"
+    )
+    peer_actions.add_parser("list", help="Show configured peers and last replication results")
     return result
 
 
@@ -92,7 +108,14 @@ def main(argv: list[str] | None = None) -> int:
 
             run_setup(args.config)
             return 0
-        config = load_config(args.config or default_config_path(args.region))
+        config_path = (args.config or default_config_path(args.region)).expanduser().absolute()
+        if args.action == "configure":
+            from mesh_bbs.configure import run_configure
+
+            run_configure(config_path)
+            return 0
+        expected_config = config_path.read_bytes()
+        config = load_config(config_path)
         if args.action == "serve":
             from mesh_bbs.runtime import serve
 
@@ -113,6 +136,57 @@ def main(argv: list[str] | None = None) -> int:
                         indent=2,
                     )
                 )
+            elif args.action == "peer":
+                from mesh_bbs.peer_setup import add_peer, card_fingerprint, export_card, read_card
+
+                if args.peer_action == "export":
+                    export_card(config, store, args.file)
+                    print(f"Public card: {args.file}. Share it with your community's operator.")
+                    print(f"Verify origin with them separately: {store.origin}")
+                    print("Both hosts must import each other's cards and restart to sync.")
+                elif args.peer_action == "add":
+                    card = read_card(args.file)
+                    if card["region"] != config.region:
+                        raise ValueError("Peer belongs to another region")
+                    print(f"Peer: {card['name']} | Region: {card['region']}")
+                    print(f"Origin: {card['origin']} | Card fingerprint: {card_fingerprint(card)}")
+                    boards = tuple(args.boards.split(","))
+                    print(f"Trust scope: {', '.join(boards)}. No moderator privileges.")
+                    if args.trust_origin is not None:
+                        if args.trust_origin != card["origin"]:
+                            raise ValueError("Approved fingerprint does not match this peer")
+                    else:
+                        from mesh_bbs.setup import _ask
+
+                        if (
+                            _ask(
+                                "Verify the origin with its operator. Trust this peer? yes/no", "no"
+                            )
+                            != "yes"
+                        ):
+                            print("Not added.")
+                            return 0
+                    backup = add_peer(config, config_path, expected_config, store, card, boards)
+                    print(f"Peer saved. Backup: {backup}" if backup else "Peer already configured.")
+                    print("Exchange your card in return; restart both BBS services to apply trust.")
+                else:
+                    for peer in config.peers:
+                        saved = store._meta("federation_status:" + (peer.reticulum_identity or ""))
+                        print(
+                            json.dumps(
+                                {
+                                    "origin": peer.origin,
+                                    "reticulum_identity": peer.reticulum_identity,
+                                    "boards": peer.allowed_boards,
+                                    "last_sync": json.loads(saved) if saved else None,
+                                }
+                            )
+                        )
+                    if not config.peers:
+                        print(
+                            "No BBS peers configured. "
+                            "Feed imports are not host-to-host replication."
+                        )
             elif args.action == "command":
                 response = CommandService(store, config.editors).handle(
                     args.actor,

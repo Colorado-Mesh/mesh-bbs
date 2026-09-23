@@ -7,6 +7,8 @@ import json
 import math
 import os
 import re
+import stat
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -425,8 +427,8 @@ def _toml_value(value: Any) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def save_config(config: HostConfig, path: Path) -> None:
-    """Create configuration without replacing any existing file or symlink."""
+def config_text(config: HostConfig) -> str:
+    """Serialize validated values; comments in an imported file are not retained."""
     lines = ["# Mesh BBS operator configuration. Radio connections require explicit opt-in."]
     for key in (
         "name",
@@ -452,10 +454,56 @@ def save_config(config: HostConfig, path: Path) -> None:
             for key, value in vars(entry).items():
                 if value is not None:
                     lines.append(f"{key} = {_toml_value(value)}")
+    return "\n".join(lines) + "\n"
+
+
+def save_config(config: HostConfig, path: Path) -> None:
+    """Create configuration without replacing any existing file or symlink."""
     path = path.expanduser()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")
+        handle.write(config_text(config))
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def update_config(config: HostConfig, path: Path, expected: bytes) -> Path:
+    """Back up and atomically replace a configuration only if it has not changed."""
+    import fcntl
+
+    path = path.expanduser().absolute()
+    lock = path.with_name(path.name + ".lock")
+    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    temporary: str | None = None
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("Configuration lock must be a regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or path.read_bytes() != expected:
+            raise ValueError("Configuration changed; reload it before saving")
+        backup_fd, backup_name = tempfile.mkstemp(prefix=path.name + ".backup-", dir=path.parent)
+        with os.fdopen(backup_fd, "wb") as stream:
+            stream.write(expected)
+            stream.flush()
+            os.fsync(stream.fileno())
+        new_fd, temporary = tempfile.mkstemp(prefix=path.name + ".new-", dir=path.parent)
+        with os.fdopen(new_fd, "w", encoding="utf-8") as stream:
+            stream.write(config_text(config))
+            stream.flush()
+            os.fsync(stream.fileno())
+        current = path.lstat()
+        if (before.st_ino, before.st_mtime_ns, before.st_size) != (
+            current.st_ino,
+            current.st_mtime_ns,
+            current.st_size,
+        ) or path.read_bytes() != expected:
+            raise ValueError("Configuration changed; reload it before saving")
+        os.replace(temporary, path)
+        temporary = None
+        return Path(backup_name)
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
+        os.close(descriptor)

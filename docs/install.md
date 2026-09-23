@@ -19,8 +19,8 @@ text source in Colorado-Mesh/advocacy, so readers also get the newsletter text.
 Both are checked every 15 minutes when the service runs; stable thread IDs
 preserve replies when the source is corrected. The feed can be edited or removed. Other communities start
 without a feed until the operator supplies one. The region choice does not
-register a host or connect it to an official public federation server; peer
-addresses must be provided by their operators.
+register a host or connect it to an official public federation server; operators must explicitly exchange and approve public peer cards.
+See [community setup](community-setup.md) for the complete workflow.
 
 This is a development install from `main`, not a published stable release. To
 install a reviewed commit or tag, use its ref for both the script and package:
@@ -46,10 +46,12 @@ download and inspect `install.sh` before running `sh install.sh --ref ...`.
   local-only use. `MESH_BBS_EXTRAS` supplies the same setting.
 - Places the executable in `~/.local/bin`, or your `UV_TOOL_BIN_DIR` if set.
 - Creates a new configuration only when you complete setup. Existing files are
-  never overwritten by the wizard.
+  backed up before the connection wizard updates them. Initial community setup
+  never overwrites an existing file.
 
-Do not use `sudo`. Installation does not enable radio interfaces, start a
-background service, create contributor keys, or edit your shell startup files.
+Do not use `sudo`. The optional connection wizard saves only the transports you
+choose. Installation does not connect to radios, start a background service,
+create contributor keys, or edit your shell startup files.
 Run `~/.local/bin/mesh-bbs`
 directly if that directory is not on your PATH. If `UV_TOOL_BIN_DIR` contains
 spaces, quote the executable path when running it.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
+import time
 from collections.abc import Callable
 from functools import partial
 from typing import Any
@@ -156,8 +158,32 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
                 while True:
                     for peer in peer_boards:
                         try:
-                            await federation.pull_peer(peer, partial(reticulum.request_peer, peer))
+                            result = await federation.pull_peer(
+                                peer, partial(reticulum.request_peer, peer)
+                            )
+                            with store.transaction():
+                                store._set_meta(
+                                    "federation_status:" + peer,
+                                    json.dumps(
+                                        {
+                                            "checked_at": time.time(),
+                                            "completed_sweep": result.completed_sweep,
+                                            "accepted_events": result.accepted_events,
+                                            "status": result.stop_reason,
+                                        }
+                                    ),
+                                )
                         except Exception:
+                            with store.transaction():
+                                store._set_meta(
+                                    "federation_status:" + peer,
+                                    json.dumps(
+                                        {
+                                            "checked_at": time.time(),
+                                            "status": "error",
+                                        }
+                                    ),
+                                )
                             logger.exception(
                                 "Replication with %s failed; retrying next cycle", peer
                             )

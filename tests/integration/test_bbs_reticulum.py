@@ -18,12 +18,13 @@ from typing import Any
 
 import pytest
 
+from mesh_bbs.cli import open_store
 from mesh_bbs.commands import CommandService
-from mesh_bbs.config import FeedConfig
+from mesh_bbs.config import FeedConfig, HostConfig, ReticulumConfig, load_config, save_config
 from mesh_bbs.federation import FederationService
 from mesh_bbs.feeds import FetchResult
 from mesh_bbs.newsletters import NewsletterImporter
-from mesh_bbs.store import Grant, Store
+from mesh_bbs.peer_setup import add_peer, export_card, read_card
 from mesh_bbs.views import Views
 
 BOARDS = frozenset({"general", "news"})
@@ -48,13 +49,11 @@ async def run_node(config: dict[str, Any]) -> None:
     from mesh_bbs.adapters.reticulum import ReticulumAdapter
 
     root = Path(config["root"])
-    store = Store(root / "bbs.sqlite3", "colorado-mesh")
-    store.grants.update(
-        {peer["origin"]: Grant(peer["key"], BOARDS) for peer in config["peers"].values()}
-    )
+    host = load_config(root / "host.toml")
+    store = open_store(host)
     commands = CommandService(store)
     federation = FederationService(
-        store, {peer["identity"]: BOARDS for peer in config["peers"].values()}
+        store, {peer.reticulum_identity: frozenset(peer.allowed_boards) for peer in host.peers}
     )
     views = Views(store, "Colorado Mesh integration host")
 
@@ -69,7 +68,7 @@ async def run_node(config: dict[str, Any]) -> None:
 
     adapter = ReticulumAdapter(
         config_dir=root / "rns",
-        state_dir=root / "state",
+        state_dir=root / "reticulum",
         name="Colorado Mesh integration host",
         command_handler=command,
         page_handler=views.page,
@@ -268,7 +267,7 @@ class Node:
 
 @pytest.mark.integration
 def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
-    rns = pytest.importorskip("RNS")
+    pytest.importorskip("RNS")
     pytest.importorskip("LXMF")
     peers = {}
     roots = {name: tmp_path / name for name in ("alpha", "beta", "gamma")}
@@ -280,14 +279,17 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
             ports[name] = reservation.getsockname()[1]
     for name, root in roots.items():
         (root / "rns").mkdir(parents=True)
-        (root / "state").mkdir()
-        identity = rns.Identity()
-        identity.to_file(str(root / "state" / "identity"))
-        store = Store(root / "bbs.sqlite3", "colorado-mesh")
+        host = HostConfig(
+            name, "colorado-mesh", root, reticulum=ReticulumConfig(True, root / "rns")
+        )
+        save_config(host, root / "host.toml")
+        store = open_store(host)
+        export_card(host, store, root / "public-peer.json")
+        card = read_card(root / "public-peer.json")
         peers[name] = {
-            "identity": identity.hash.hex(),
-            "origin": store.origin,
-            "key": store.public_key,
+            "identity": card["reticulum_identity"],
+            "origin": card["origin"],
+            "key": card["public_key"],
         }
         store.close()
         interfaces = (
@@ -305,6 +307,25 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
             "[reticulum]\nshare_instance = No\nenable_transport = Yes\n"
             f"[logging]\nloglevel = 1\n[interfaces]\n{interfaces}"
         )
+    # Operators exchange signed cards and explicitly authorize the same community.
+    for name, root in roots.items():
+        path = root / "host.toml"
+        for other_name, other_root in roots.items():
+            if other_name == name:
+                continue
+            host = load_config(path)
+            store = open_store(host)
+            try:
+                add_peer(
+                    host,
+                    path,
+                    path.read_bytes(),
+                    store,
+                    read_card(other_root / "public-peer.json"),
+                    ("*",),
+                )
+            finally:
+                store.close()
     nodes = {
         name: Node(
             root,
@@ -368,6 +389,21 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         assert len(final[0]["events"]) == 7
         assert final[0]["posts"] == final[1]["posts"] == final[2]["posts"]
         assert len(final[0]["posts"]) == 6
+        # The same guided conversation creates a new board through real signed LXMF.
+        assert "3 Write/resume" in dm("help")
+        assert "general" in dm("3")
+        assert "board name" in dm("2")
+        assert "title" in dm("hiking")
+        assert "text" in dm("Trail report")
+        assert "saved" in dm("Trail is clear.")
+        assert "publish |" in dm("done")
+        assert "Posted to hiking" in dm("publish")
+        for receiver, peer in ((alpha, "beta"), (gamma, "alpha")):
+            assert receiver.call("pull", peer=peer)["completed_sweep"]
+        shared = [node.call("snapshot")["posts"] for node in nodes.values()]
+        assert shared[0] == shared[1] == shared[2]
+        assert any(p["board"] == "hiking" and p["body"] == "Trail is clear." for p in shared[0])
+        final = [node.call("snapshot") for node in nodes.values()]
         beta.stop()
         assert beta.process is not None and beta.process.returncode == 0, beta.log.read_text()
         assert beta.start() == {"origin": peers["beta"]["origin"], "key": peers["beta"]["key"]}
@@ -392,6 +428,7 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         )
         assert "Weekend plans" in thread and "Count me in" in thread
         assert seeds["alpha"]["reply"] in thread
+
     finally:
         for node in nodes.values():
             node.stop()

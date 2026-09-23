@@ -59,6 +59,35 @@ def _bounded_object(value: Any, limit: int) -> dict[str, Any]:
     return value
 
 
+def load_service_identity(state_dir: Path, rns: Any) -> Any:
+    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = state_dir / "identity"
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise ValueError("Reticulum service identity must be a regular file") from None
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as key_file:
+            if not stat.S_ISREG(os.fstat(key_file.fileno()).st_mode):
+                raise ValueError("Reticulum service identity must be a regular file") from None
+            os.fchmod(key_file.fileno(), 0o600)
+            key_size = rns.Identity.KEYSIZE // 8
+            private_key = key_file.read(key_size + 1)
+        identity = rns.Identity(create_keys=False)
+        if len(private_key) != key_size or not identity.load_private_key(private_key):
+            raise ValueError("Cannot load the existing Reticulum service identity") from None
+        return identity
+    else:
+        with os.fdopen(descriptor, "wb") as key_file:
+            os.fchmod(key_file.fileno(), 0o600)
+            identity = rns.Identity()
+            key_file.write(identity.get_private_key())
+            key_file.flush()
+            os.fsync(key_file.fileno())
+        return identity
+
+
 class ReticulumAdapter:
     """Own one RNS runtime, using explicitly configured state directories.
 
@@ -155,31 +184,7 @@ class ReticulumAdapter:
         }
 
     def _load_identity(self) -> Any:
-        path = self.state_dir / "identity"
-        try:
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            if not stat.S_ISREG(path.lstat().st_mode):
-                raise ValueError("Reticulum service identity must be a regular file") from None
-            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            with os.fdopen(descriptor, "rb") as key_file:
-                if not stat.S_ISREG(os.fstat(key_file.fileno()).st_mode):
-                    raise ValueError("Reticulum service identity must be a regular file") from None
-                os.fchmod(key_file.fileno(), 0o600)
-                key_size = self._rns.Identity.KEYSIZE // 8
-                private_key = key_file.read(key_size + 1)
-            identity = self._rns.Identity(create_keys=False)
-            if len(private_key) != key_size or not identity.load_private_key(private_key):
-                raise ValueError("Cannot load the existing Reticulum service identity") from None
-            return identity
-        else:
-            with os.fdopen(descriptor, "wb") as key_file:
-                os.fchmod(key_file.fileno(), 0o600)
-                identity = self._rns.Identity()
-                key_file.write(identity.get_private_key())
-                key_file.flush()
-                os.fsync(key_file.fileno())
-            return identity
+        return load_service_identity(self.state_dir, self._rns)
 
     async def start(self) -> None:
         if self._started:

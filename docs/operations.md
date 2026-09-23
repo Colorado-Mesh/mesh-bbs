@@ -246,6 +246,14 @@ the schedule. An uncertain result waits until the next interval rather than
 immediately flooding again. The companion's OK response confirms acceptance of
 the command, not reception by another node. Meshtastic does not use this option.
 
+## Pair community hosts
+
+Use `mesh-bbs configure` for connection and feed setup, then `peer export` and
+`peer add` to exchange signed public identity files. `peer list` shows configured
+trust and the last sync outcome. See [the operator walkthrough](community-setup.md)
+for exact commands, region isolation, and future-board permissions. Every host
+must explicitly trust every signing origin it intends to replicate.
+
 ## Publish newsletters
 
 The Colorado Mesh setup preset imports its
@@ -439,8 +447,9 @@ The newly designated host baselines existing content instead of replaying it.
 Notices include the board, a UTF-8-bounded title and a short `read ID` command.
 They cover new root threads from web, radio, CLI, feeds and trusted replication
 across all configured boards, including boards added later. New board notices
-point to `threads BOARD`. Adding a board still means adding it to `boards` in the
-host config and restarting; peer board grants must also be updated for sync.
+point to `threads BOARD`. Readers can create community boards through the guided
+DM menu or web interface. Paired peers with wildcard board grants sync new
+boards automatically; peers with explicit board lists require updated grants.
 Replies, edits, removals and repeated imports do not create new notices.
 
 The default limit is one notice every ten minutes per protocol, sharing the

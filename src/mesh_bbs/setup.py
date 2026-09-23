@@ -11,6 +11,7 @@ from mesh_bbs.config import (
     HostConfig,
     default_config_path,
     default_data_dir,
+    load_config,
     save_config,
     validate_slug,
 )
@@ -50,7 +51,8 @@ def run_setup(config_path: Path | None = None) -> Path:
     target = (config_path or default_config_path(region)).expanduser().absolute()
     if target.exists() or target.is_symlink():
         raise FileExistsError(
-            f"configuration already exists: {target}; edit it or choose another path"
+            f"configuration already exists: {target}; "
+            f"run mesh-bbs --config {shlex.quote(str(target))} configure"
         )
     host_name = _ask("Name for this host", f"{community} BBS")
     data_dir = default_data_dir(region)
@@ -78,6 +80,14 @@ def run_setup(config_path: Path | None = None) -> Path:
     else:
         print("Add your community's RSS/Atom source to the config to import newsletters.")
     quoted = shlex.quote(str(target))
+    from mesh_bbs.configure import choice as choose
+    from mesh_bbs.configure import run_configure
+
+    if choose("Configure radio, Reticulum, or feed connections now? y/n", {"y", "n"}, "y") == "y":
+        run_configure(target)
+    else:
+        print(f"Configure connections later: mesh-bbs --config {quoted} configure")
+    config = load_config(target)
     print(f"Next: mesh-bbs --config {quoted} init")
     print(f"Create your contributor key: mesh-bbs --config {quoted} web-access create alice")
     print("Replace alice with your contributor name. Save the generated key privately.")
