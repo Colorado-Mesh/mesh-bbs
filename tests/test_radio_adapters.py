@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import threading
+import time
 import types
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
@@ -188,6 +189,21 @@ class FakeMeshCore:
         self.closed = False
         self.fetching = False
         self.ack = True
+        self.clock = 0
+        self.adverts = []
+        self.advert_sent = asyncio.Event()
+
+    async def get_time(self):
+        return SimpleNamespace(type="time", payload={"time": self.clock})
+
+    async def set_time(self, timestamp):
+        self.clock = timestamp
+        return SimpleNamespace(type="ok")
+
+    async def send_advert(self, *, flood):
+        self.adverts.append(flood)
+        self.advert_sent.set()
+        return SimpleNamespace(type="ok")
 
     async def get_contacts(self):
         return SimpleNamespace(type="contacts", payload=self.contacts)
@@ -221,7 +237,9 @@ def install_meshcore(monkeypatch, radio):
         return radio
 
     module.MeshCore = SimpleNamespace(create_serial=create_serial)
-    module.EventType = SimpleNamespace(ERROR="error", CONTACT_MSG_RECV="direct")
+    module.EventType = SimpleNamespace(
+        ERROR="error", OK="ok", CURRENT_TIME="time", CONTACT_MSG_RECV="direct"
+    )
     monkeypatch.setitem(sys.modules, "meshcore", module)
 
 
@@ -231,6 +249,7 @@ async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
     install_meshcore(monkeypatch, radio)
     adapter = MeshCoreAdapter(help_handler, serial_port="/dev/fake", min_interval=0)
     await adapter.start()
+    assert abs(radio.clock - time.time()) < 5
     with pytest.raises(RuntimeError):
         await adapter.start()
     radio.subscribers["direct"](SimpleNamespace(payload=meshcore_payload()))
@@ -245,6 +264,56 @@ async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
     assert adapter.failed == 1
     await adapter.stop()
     assert radio.closed and not radio.fetching and not radio.subscribers
+
+
+@pytest.mark.asyncio
+async def test_meshcore_advert_schedule_survives_reconnect(monkeypatch, tmp_path):
+    from mesh_bbs.airtime import AirtimeLimiter
+
+    budget = AirtimeLimiter(tmp_path / "airtime.db", "test")
+    path = tmp_path / "advert.json"
+    try:
+        for expected in (True, False):
+            radio = FakeMeshCore()
+            install_meshcore(monkeypatch, radio)
+            adapter = MeshCoreAdapter(
+                help_handler,
+                serial_port="/dev/fake",
+                min_interval=0,
+                advert_interval_seconds=86400,
+                advert_state_path=path,
+                airtime_limiter=budget,
+            )
+            try:
+                await adapter.start()
+                if expected:
+                    await asyncio.wait_for(radio.advert_sent.wait(), 1)
+                    assert radio.adverts == [True]
+                else:
+                    await asyncio.sleep(0)
+                    assert radio.adverts == []
+            finally:
+                await adapter.stop()
+        assert budget.try_reserve(10)[0] is not None
+        assert budget.try_reserve(2)[0] is None  # Advertisement consumed one packet.
+    finally:
+        budget.close()
+
+
+@pytest.mark.asyncio
+async def test_meshcore_failed_clock_sync_closes_connection(monkeypatch):
+    radio = FakeMeshCore()
+    install_meshcore(monkeypatch, radio)
+
+    async def rejected(timestamp):
+        return SimpleNamespace(type="error")
+
+    radio.set_time = rejected
+    adapter = MeshCoreAdapter(help_handler, serial_port="/dev/fake")
+    with pytest.raises(ConnectionError, match="synchronize"):
+        await adapter.start()
+    assert radio.closed
+    assert not radio.fetching
 
 
 @pytest.mark.asyncio

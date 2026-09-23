@@ -11,9 +11,13 @@ API: https://github.com/meshcore-dev/meshcore_py/tree/v2.3.14
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
+from mesh_bbs.advertisements import AdvertSchedule
 from mesh_bbs.airtime import AirtimeLimiter
 
 from .base import (
@@ -23,6 +27,8 @@ from .base import (
     QueuedRadioAdapter,
     validate_connection,
 )
+
+LOG = logging.getLogger(__name__)
 
 
 def parse_meshcore_message(
@@ -67,7 +73,15 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         min_interval: float = 3.0,
         max_attempts: int = 2,
         airtime_limiter: AirtimeLimiter | None = None,
+        advert_interval_seconds: int = 0,
+        advert_state_path: Path | None = None,
     ) -> None:
+        if type(advert_interval_seconds) is not int or (
+            advert_interval_seconds != 0 and not 3600 <= advert_interval_seconds <= 604800
+        ):
+            raise ValueError("Advertisement interval must be 0 or between 3600 and 604800 seconds")
+        if advert_interval_seconds and (advert_state_path is None or airtime_limiter is None):
+            raise ValueError("Advertisements require persistent schedule and airtime state")
         validate_connection(serial_port, tcp_host, tcp_port)
         if not 64 <= max_bytes <= 160:
             raise ValueError("MeshCore max_bytes must be between 64 and 160")
@@ -87,6 +101,14 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         self.max_attempts = max_attempts
         self._client: Any = None
         self._subscription: Any = None
+        self._send_lock = asyncio.Lock()
+        self._advert_task: asyncio.Task[None] | None = None
+        self.advert_interval_seconds = advert_interval_seconds
+        self._advert_schedule = (
+            AdvertSchedule(advert_state_path)
+            if advert_interval_seconds and advert_state_path is not None
+            else None
+        )
 
     @property
     def connected(self) -> bool:
@@ -115,6 +137,7 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             raise ConnectionError("Could not connect to MeshCore companion")
         self._client = client
         try:
+            await self._sync_clock()
             client.auto_update_contacts = True
             result = await client.commands.get_contacts()
             if result.type == EventType.ERROR:
@@ -122,6 +145,8 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             self._subscription = client.subscribe(EventType.CONTACT_MSG_RECV, self._receive)
             self._start_worker()
             await client.start_auto_message_fetching()
+            if self._advert_schedule is not None:
+                self._advert_task = asyncio.create_task(self._advert_loop())
         except BaseException:
             await self.stop()
             raise
@@ -138,19 +163,74 @@ class MeshCoreAdapter(QueuedRadioAdapter):
             raise DeliveryError("MeshCore adapter is disconnected")
         if "\x00" in text or len(text.encode("utf-8")) > self.max_bytes:
             raise ValueError("MeshCore reply exceeds configured byte limit")
-        result = await self._client.commands.send_msg_with_retry(
-            message.sender.removeprefix("meshcore:"),
-            text,
-            max_attempts=self.max_attempts,
-            max_flood_attempts=self.max_attempts,
-            flood_after=self.max_attempts,
-            min_timeout=self.min_interval,
-        )
+        async with self._send_lock:
+            await self._space_transmission()
+            try:
+                result = await self._client.commands.send_msg_with_retry(
+                    message.sender.removeprefix("meshcore:"),
+                    text,
+                    max_attempts=self.max_attempts,
+                    max_flood_attempts=self.max_attempts,
+                    flood_after=self.max_attempts,
+                    min_timeout=self.min_interval,
+                )
+            finally:
+                self._last_send = time.monotonic()
         if result is None:
             raise DeliveryError("MeshCore reply was not acknowledged")
 
+    async def _sync_clock(self) -> None:
+        from meshcore import EventType
+
+        now = int(time.time())
+        current = await self._client.commands.get_time()
+        if current.type != EventType.CURRENT_TIME:
+            raise ConnectionError("Could not read MeshCore companion clock")
+        if abs(current.payload["time"] - now) <= 5:
+            return
+        result = await self._client.commands.set_time(now)
+        if result.type != EventType.OK:
+            raise ConnectionError("Could not synchronize MeshCore companion clock")
+
+    async def _space_transmission(self) -> None:
+        await asyncio.sleep(max(0, self.min_interval - (time.monotonic() - self._last_send)))
+
+    async def _advert_loop(self) -> None:
+        from meshcore import EventType
+
+        schedule, limiter = self._advert_schedule, self.airtime_limiter
+        assert schedule is not None and limiter is not None
+        while True:
+            try:
+                delay = schedule.delay(time.time(), self.advert_interval_seconds)
+                if delay:
+                    await asyncio.sleep(min(delay, 3600))
+                    continue
+                reservation = await limiter.acquire(1)
+                try:
+                    async with self._send_lock:
+                        await self._space_transmission()
+                        await self._sync_clock()
+                        schedule.mark_attempt(time.time())
+                        try:
+                            result = await self._client.commands.send_advert(flood=True)
+                        finally:
+                            self._last_send = time.monotonic()
+                        if result.type != EventType.OK:
+                            raise DeliveryError("MeshCore flood advert was not accepted")
+                        LOG.info("Scheduled MeshCore flood advert accepted by companion")
+                finally:
+                    limiter.finish(reservation)
+            except Exception:
+                LOG.exception("Scheduled MeshCore advertisement failed")
+                await asyncio.sleep(60)
+
     async def stop(self) -> None:
         try:
+            if self._advert_task is not None:
+                self._advert_task.cancel()
+                await asyncio.gather(self._advert_task, return_exceptions=True)
+                self._advert_task = None
             await self._stop_worker()
         finally:
             client = self._client

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import time
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -121,6 +122,11 @@ class CompanionEmulator:
                 + b"\x07\x05BBS emulator",
                 fragmented=True,
             )
+        elif command == 5:
+            await self.frames(b"\x09" + struct.pack("<I", 1700000000))
+        elif command == 6:
+            assert abs(int.from_bytes(payload[1:], "little") - time.time()) < 5
+            await self.frames(b"\x00")
         elif command == 4:
             assert payload == b"\x04"
             contact = (

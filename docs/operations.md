@@ -224,6 +224,20 @@ sync. A missing parent must stay a missing parent instead of attaching a reply
 to an unrelated post. Preserve removal records when copying or recovering data;
 deleting their history can make old content appear again.
 
+## MeshCore discovery
+
+The BBS synchronizes the companion's clock when it connects. A radio that has
+rebooted can otherwise advertise with an old timestamp and be ignored by peers.
+To opt into a daily flood advertisement, set `advert_interval_seconds = 86400`
+in `[meshcore]`. The default is `0` (disabled); supported intervals are one hour
+to seven days. This setting does not change the radio's frequency or flood scope.
+
+The service saves each attempt in `meshcore-advert.json` before sending it and
+charges one packet to the existing airtime budget. Reconnects and restarts keep
+the schedule. An uncertain result waits until the next interval rather than
+immediately flooding again. The companion's OK response confirms acceptance of
+the command, not reception by another node. Meshtastic does not use this option.
+
 ## Publish newsletters
 
 The Colorado Mesh setup preset imports its

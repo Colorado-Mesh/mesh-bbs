@@ -122,9 +122,13 @@ class RadioConfig:
     airtime_window_seconds: float = 3600.0
     packet_airtime_seconds: float = 10.0
     firmware_max_attempts: int = 4
+    advert_interval_seconds: int = 0
 
     def __post_init__(self) -> None:
         _boolean(self.enabled, "radio enabled")
+        _integer(self.advert_interval_seconds, "radio advert_interval_seconds", 0, 604800)
+        if 0 < self.advert_interval_seconds < 3600:
+            raise ValueError("MeshCore advertisements must be at least one hour apart")
         if self.serial_port is not None:
             _text(self.serial_port, "radio serial_port", 1024)
         if self.tcp_host is not None:
@@ -180,6 +184,8 @@ class HostConfig:
 
     def __post_init__(self) -> None:
         _text(self.name, "host name")
+        if self.meshtastic.advert_interval_seconds:
+            raise ValueError("advert_interval_seconds is only supported for MeshCore")
         validate_slug(self.region)
         if not isinstance(self.data_dir, Path) or not self.data_dir.is_absolute():
             raise ValueError("data_dir must be an absolute Path")
@@ -337,6 +343,7 @@ def load_config(path: Path) -> HostConfig:
                 "airtime_window_seconds",
                 "packet_airtime_seconds",
                 "firmware_max_attempts",
+                "advert_interval_seconds",
             },
             protocol,
         )

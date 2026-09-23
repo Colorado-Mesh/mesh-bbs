@@ -64,7 +64,16 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
 
     try:
         for name, radio, adapter, port, options in (
-            ("meshcore", config.meshcore, MeshCoreAdapter, 4000, {}),
+            (
+                "meshcore",
+                config.meshcore,
+                MeshCoreAdapter,
+                4000,
+                {
+                    "advert_interval_seconds": config.meshcore.advert_interval_seconds,
+                    "advert_state_path": config.data_dir / "meshcore-advert.json",
+                },
+            ),
             (
                 "meshtastic",
                 config.meshtastic,
