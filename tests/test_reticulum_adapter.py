@@ -338,6 +338,30 @@ def test_page_callback_passes_path_and_variables(tmp_path: Path) -> None:
     service.page_handler.assert_called_once_with("/page/board.mu", request)
 
 
+@pytest.mark.parametrize("payload", [None, {}, b""])
+def test_page_callback_accepts_empty_nomadnet_requests(tmp_path: Path, payload: object) -> None:
+    service = adapter(tmp_path)
+    service._running = True
+    assert service._page_request("/page/index.mu", payload, b"r", b"l", None, 0) == (
+        b"#!c=0\n>Boards\n"
+    )
+    service.page_handler.assert_called_once_with("/page/index.mu", {})
+
+
+@pytest.mark.parametrize(
+    "payload", [b"invalid", b"\x80", "", [], {1: "value"}, {"var_board": "x" * 8192}]
+)
+def test_page_callback_rejects_invalid_payloads(tmp_path: Path, payload: object) -> None:
+    service = adapter(tmp_path)
+    service._running = True
+    assert b">Unavailable" in service._page_request("/page/index.mu", payload, b"r", b"l", None, 0)
+    service.page_handler.assert_not_called()
+    # A rejected request must release its slot for the next reader.
+    assert service._page_request("/page/index.mu", None, b"r", b"l", None, 0) == (
+        b"#!c=0\n>Boards\n"
+    )
+
+
 async def test_request_peer_rejects_untrusted_identity_before_network(tmp_path: Path) -> None:
     service = adapter(tmp_path)
     service._running = True

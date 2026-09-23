@@ -366,7 +366,9 @@ class ReticulumAdapter:
         if not self._running or not self._requests.acquire(blocking=False):
             return b"#!c=0\n>Busy\nPlease try again shortly.\n"
         try:
-            request = _bounded_object({} if data is None else data, 8192)
+            # NomadNet sends nil for no variables; Mesh Client's Rust
+            # LinkClient sends an empty binary. Nonempty variables are maps.
+            request = _bounded_object({} if data is None or data == b"" else data, 8192)
             response = self.page_handler(path, request)
             if not isinstance(response, bytes) or len(response) > self.response_limit:
                 raise ValueError("Page response exceeds the adapter limit")

@@ -37,6 +37,9 @@ async def main():
         return ""
 
     def page(path, data):
+        if path == "/page/index.mu":
+            assert data == {}
+            return b"#!c=0\n>Boards\ngeneral\nnews\n"
         assert path == "/page/board.mu"
         assert data == {"var_board": "general"}
         return ("#!c=0\n>General\n" + "Newsletter text.\n" * 400).encode()
@@ -83,14 +86,24 @@ async def main():
                 while link.status != RNS.Link.ACTIVE:
                     await asyncio.sleep(0.05)
                 loop = asyncio.get_running_loop()
-                response = loop.create_future()
-                def page_received(receipt):
-                    loop.call_soon_threadsafe(response.set_result, receipt.response)
-                link.request("/page/board.mu", data={"var_board": "general"},
-                             response_callback=page_received, max_response_size=262144)
-                content = await response
-                assert content.startswith(b"#!c=0\n>General\n")
-                assert len(content) > RNS.Link.MDU
+                async def fetch_page(path, data):
+                    response = loop.create_future()
+                    def page_received(receipt):
+                        loop.call_soon_threadsafe(response.set_result, receipt.response)
+                    link.request(path, data=data, response_callback=page_received,
+                                 max_response_size=262144)
+                    return await response
+
+                # Python NomadNet uses nil; Mesh Client's Rust LinkClient uses
+                # an empty MessagePack binary for a page without variables.
+                for data in (None, b"", {}):
+                    assert await fetch_page("/page/index.mu", data) == (
+                        b"#!c=0\n>Boards\ngeneral\nnews\n")
+                    # Both clients send variables as a MessagePack map. Verify
+                    # navigation still works after each empty-body request.
+                    content = await fetch_page("/page/board.mu", {"var_board": "general"})
+                    assert content.startswith(b"#!c=0\n>General\n")
+                    assert len(content) > RNS.Link.MDU
         finally:
             link.teardown()
 
