@@ -390,6 +390,12 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         assert len(final[0]["events"]) == 7
         assert final[0]["posts"] == final[1]["posts"] == final[2]["posts"]
         assert len(final[0]["posts"]) == 6
+        # Replies visible in NomadNet's thread view are also reachable by DM,
+        # including from old notices that used a hexadecimal read ID.
+        assert "Saturday" in dm("read " + seeds["alpha"]["parent"])
+        assert "Original: Weekend plans" in dm("replies")
+        assert "Count me in" in dm("2")
+        assert "Re: Weekend plans" in dm("back")
         # The same guided conversation creates a new board through real signed LXMF.
         menu = dm("help")
         assert "3 Write/resume" in menu

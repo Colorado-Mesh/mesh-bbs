@@ -8,6 +8,93 @@ from mesh_bbs.commands import CommandService
 from mesh_bbs.store import Store
 
 
+@pytest.mark.parametrize("replacement", ["menu", "boards", "threads general", "commands"])
+def test_replies_does_not_open_a_stale_post(tmp_path, replacement):
+    store = Store(tmp_path / "bbs.db", "test")
+    try:
+        post = store.publish("author", "root", "general", "Running", "Morning run")
+        service = CommandService(store)
+        assert "Open a post first" in service.handle("reader", "replies")
+        service.handle("reader", f"read {post.post_id}")
+        service.handle("reader", replacement)
+        assert "Open a post first" in service.handle("reader", "replies")
+    finally:
+        store.close()
+
+
+def test_legacy_replies_survives_paging_and_restart(tmp_path):
+    path = tmp_path / "bbs.db"
+    store = Store(path, "test")
+    try:
+        post = store.publish("author", "root", "general", "Running", "Morning run " * 100)
+        service = CommandService(store)
+        service.handle("reader", f"read {post.post_id}")
+        service.handle("reader", "more")
+    finally:
+        store.close()
+    store = Store(path, "test")
+    try:
+        service = CommandService(store)
+        assert "Original: Running" in service.handle("reader", "replies")
+        for text in ("help", "3", "1", "Title", "replies"):
+            service.handle("reader", text)
+        assert store.db.execute("SELECT body FROM draft_parts").fetchone()[0] == "replies"
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("protocol", ["meshcore", "meshtastic", "lxmf"])
+@pytest.mark.parametrize("opening", ["menu", "number", "hex"])
+def test_replies_are_discoverable_and_readable_from_every_post_entry(tmp_path, protocol, opening):
+    store = Store(tmp_path / "bbs.db", "test")
+    try:
+        root = store.publish("author", "root", "general", "Running", "Morning run")
+        store.publish(
+            "runner", "reply", "general", "Re: Running", "Meet at the park", parent_id=root.post_id
+        )
+        service = CommandService(store)
+        actor = protocol + ":reader"
+        if opening == "menu":
+            service.handle(actor, "boards")
+            service.handle(actor, "1")
+            page = service.handle(actor, "1")
+        else:
+            identifier = (
+                f"#{store.post_number(root.post_id)}" if opening == "number" else root.post_id[:12]
+            )
+            page = service.handle(actor, f"read {identifier}")
+        if opening != "hex":
+            assert "replies=" in page
+        listing = service.handle(actor, "replies")
+        assert "Original:" in listing and "Re: Running" in listing
+        assert "Meet at the park" in service.handle(actor, "2")
+        assert "Re: Running" in service.handle(actor, "back")
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("budget", [64, 160, 4096])
+def test_long_post_offers_replies_before_last_page_without_changing_draft(tmp_path, budget):
+    store = Store(tmp_path / "bbs.db", "test")
+    try:
+        root = store.publish("author", "root", "general", "Long post", "é" * 5000)
+        store.publish("runner", "reply", "general", "Reply", "A response", parent_id=root.post_id)
+        service = CommandService(store)
+        for text in ("help", "3", "1", "My draft", "My text"):
+            service.handle("reader", text, max_bytes=budget)
+        page = service.handle(
+            "reader", f"read #{store.post_number(root.post_id)}", max_bytes=budget
+        )
+        assert "replies" in page and len(page.encode()) <= budget
+        listing = service.handle("reader", "replies", max_bytes=budget)
+        assert len(listing.encode()) <= budget
+        service.handle("reader", "menu", max_bytes=budget)
+        assert "text" in service.handle("reader", "3", max_bytes=budget)
+        assert store.db.execute("SELECT body FROM draft_parts").fetchone()[0] == "My text"
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize("protocol", ["meshcore", "meshtastic", "lxmf"])
 @pytest.mark.parametrize("budget", [64, 160, 4096])
 def test_guided_create_board_post_resume_and_publish(tmp_path: Path, protocol: str, budget: int):

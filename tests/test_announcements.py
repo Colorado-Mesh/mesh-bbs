@@ -30,7 +30,8 @@ def test_notice_shortcut_reads_same_post_after_new_posts_and_restart(tmp_path, p
     try:
         service = CommandService(store)
         page = service.handle(actor, "read #1", request_id="read-notice")
-        assert "Original post" in page and "Send next to keep reading" in page
+        assert "Original post" in page and "next=keep reading" in page
+        assert "replies=view replies" in page
         assert service.handle(actor, "read #1", request_id="read-notice") == page
         assert "Hello!" in service.handle(actor, "next")
         assert store.get_post("#1").post_id == post.post_id

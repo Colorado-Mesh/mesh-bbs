@@ -495,6 +495,19 @@ async def test_guided_menu_create_board_and_long_post_over_meshtastic(radio_sess
     assert radio.outgoing.empty()
 
 
+async def test_read_replies_over_meshtastic(radio_session):
+    radio, store = radio_session.radio, radio_session.store
+    root = store.publish("author", "root", "general", "Running", "Morning run")
+    store.publish(
+        "runner", "reply", "general", "Re: Running", "See you there", parent_id=root.post_id
+    )
+    number = store.post_number(root.post_id)
+    assert "replies=view replies" in await radio.command(f"read #{number}", 801)
+    assert "Original: Running" in await radio.command("replies", 802)
+    assert "See you there" in await radio.command("2", 803)
+    assert "Re: Running" in await radio.command("back", 804)
+
+
 async def test_channel_help_on_meshtastic_points_to_the_same_dm_menu(tmp_path):
     store = Store(tmp_path / "bbs.db", "test")
     box = AnnouncementOutbox(store, "meshtastic")

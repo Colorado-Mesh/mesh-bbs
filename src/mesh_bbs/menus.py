@@ -43,18 +43,19 @@ class Menus:
         state = json.loads(row[0]) if row else {"view": "home"}
         word = text.casefold().strip()
         response = self._handle(actor, text, word, budget, state)
-        if response is None and row:
+        if response is None:
             # Explicit commands replace the active page. Keep a draft available
             # for menu -> 3, but never apply stale numbered choices to that page.
             state.update(view="legacy", history=[])
-            self.store.db.execute(
-                "UPDATE menu_sessions SET state=? WHERE actor=?", (json.dumps(state), actor)
-            )
-        if response is not None:
-            self.store.db.execute(
-                "INSERT OR REPLACE INTO menu_sessions VALUES (?,?,?)",
-                (actor, json.dumps(state), now + 86400),
-            )
+            verb, _, arguments = text.partition(" ")
+            if verb.lower() == "read":
+                state["post"] = self.store.get_post(arguments.strip()).post_id
+            elif word not in {"more", "next"}:
+                state.pop("post", None)
+        self.store.db.execute(
+            "INSERT OR REPLACE INTO menu_sessions VALUES (?,?,?)",
+            (actor, json.dumps(state), now + 86400),
+        )
         return response
 
     def _home(self, state: dict[str, Any], budget: int) -> str:
@@ -96,6 +97,11 @@ class Menus:
                     self.store.db.execute("DELETE FROM drafts WHERE draft_id=?", (draft,))
             return self._home(state, budget)
         view = state["view"]
+        if word == "replies" and view not in {"title", "body", "board_name", "preview"}:
+            if view not in {"read", "legacy"} or not state.get("post"):
+                return "Open a post first, then send replies."
+            post = self.store.get_post(state["post"])
+            return self._posts(state, post.board, budget, thread_id=post.thread_id)
         if word == "back":
             history = state.get("history", [])
             if not history:
@@ -160,9 +166,6 @@ class Menus:
                 )
                 state.update(view="body", draft=draft)
                 return self._body_prompt(budget)
-            if word == "replies":
-                post = self.store.get_post(state["post"])
-                return self._posts(state, post.board, budget, thread_id=post.thread_id)
         if view in {"boards", "posts", "write_boards"} and word in {"next", "more"}:
             if state.get("stop", 0) < len(state["items"]):
                 state["offset"] = state["stop"]
@@ -271,7 +274,14 @@ class Menus:
             board=board,
             thread=thread_id,
             title="Replies" if thread_id else board,
-            items=[[p.post_id, "[removed]" if p.deleted else p.title] for p in posts[:50]],
+            items=[
+                [
+                    p.post_id,
+                    ("Original: " if thread_id and not p.parent_id else "")
+                    + ("[removed]" if p.deleted else p.title),
+                ]
+                for p in posts[:50]
+            ],
             offset=0,
             after=posts[49].post_id if len(posts) > 50 else "",
         )
@@ -337,14 +347,16 @@ class Menus:
             ).fetchone()
             if post and post[0] == "news":
                 end = "\nEnd. News is read-only. back | menu"
-        more = "\nnext=more | cancel" if preview else "\nnext=more | back | menu"
+        more = "\nnext=more | cancel" if preview else "\nnext | replies | back | menu"
         if not preview and budget >= 100:
-            more = "\nSend next to keep reading, or menu for options."
+            more = "\nnext=keep reading | replies=view replies | menu"
             end = (
                 "\nEnd. News is read-only. Send menu for options."
                 if post and post[0] == "news"
-                else "\nEnd. Send reply to respond, or menu for options."
+                else "\nEnd. replies=view replies | reply=write | back | menu"
             )
+        if not preview and post and post[0] == "news":
+            more = "\nnext=more | back | menu"
         if len((rest + end).encode()) <= budget:
             content, footer = rest, end
         else:

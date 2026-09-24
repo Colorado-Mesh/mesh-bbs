@@ -587,3 +587,16 @@ async def test_guided_menu_create_board_and_long_post_over_meshcore(tmp_path):
         assert len(posts) == 1 and posts[0].author == ACTOR
         assert posts[0].body.endswith("\nBring water.")
         assert radio.outgoing.empty()
+
+
+async def test_read_replies_over_meshcore(tmp_path):
+    async with connected_bbs(tmp_path) as (radio, adapter, store):
+        root = store.publish("author", "root", "general", "Running", "Morning run")
+        store.publish(
+            "runner", "reply", "general", "Re: Running", "See you there", parent_id=root.post_id
+        )
+        number = store.post_number(root.post_id)
+        assert "replies=view replies" in await exchange(radio, adapter, f"read #{number}")
+        assert "Original: Running" in await exchange(radio, adapter, "replies")
+        assert "See you there" in await exchange(radio, adapter, "2")
+        assert "Re: Running" in await exchange(radio, adapter, "back")

@@ -43,6 +43,19 @@ such as `1`.
 A new-board notice asks you to send `boards`; choose the board from that menu.
 Old notices with hexadecimal IDs still work through `read ID` and `more`.
 
+## Read replies to a post
+
+1. Open the post from its board menu, or send `read #7` from a channel notice.
+2. Send **`replies`**, even if you have not finished reading the original post.
+3. Send the number beside a reply to read it. The original is labeled **Original**.
+4. Use `next` for more text and `back` to return to the conversation list.
+
+`replies` also works after `read ID` from an older notice. In a long conversation,
+send `next` from the list to see more choices. **`replies` reads the conversation;
+`reply` starts writing a response.** These commands work in MeshCore, Meshtastic,
+and Reticulum LXMF private messages. NomadNet and messaging show the same saved
+posts and replies on that host.
+
 ## Write a post or create a board
 
 1. Send `help`, then `3`.
