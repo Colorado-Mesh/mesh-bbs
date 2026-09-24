@@ -77,6 +77,14 @@ transaction boundaries. A radio ACK is not a commit receipt. “Saved locally”
 confirms storage here, not peer convergence. Radio transmission queues are
 bounded and in memory; an interrupted reply may require a safe user retry.
 
+`resend` (also `again` or `repeat`) returns the last successful command response
+for that sender without executing the command or changing navigation. The reply
+commits with the command before transport delivery, so an unacknowledged reply
+is recoverable. The cache holds one bounded response per sender, expires after
+24 hours, and keeps at most 4,096 senders. Read responses retain their revision
+reference for removal invalidation. Replaying an older request receipt does not
+replace the current navigation or last-reply cache.
+
 ## Menus, reading numbers, and long posts
 
 Numbered DM menus save bounded snapshots. An arrival cannot change what a

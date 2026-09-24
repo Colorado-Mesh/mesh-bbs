@@ -31,6 +31,94 @@ def draft_id(response: str) -> str:
     return match[0]
 
 
+@pytest.mark.parametrize("protocol", ["meshcore", "meshtastic", "lxmf"])
+@pytest.mark.parametrize("again", ["resend", "again", "repeat", "RESEND"])
+def test_resend_preserves_menu_and_draft(service, protocol, again):
+    actor = protocol + ":reader"
+    menu = service.handle(actor, "help")
+    state = service.store.db.execute(
+        "SELECT state FROM menu_sessions WHERE actor=?", (actor,)
+    ).fetchone()[0]
+    assert service.handle(actor, again) == menu
+    assert (
+        service.store.db.execute(
+            "SELECT state FROM menu_sessions WHERE actor=?", (actor,)
+        ).fetchone()[0]
+        == state
+    )
+    service.handle(actor, "3")
+    service.handle(actor, "1")
+    service.handle(actor, "My title")
+    saved = service.handle(actor, "First part")
+    assert service.handle(actor, again) == saved
+    assert service.store.db.execute("SELECT count(*) FROM draft_parts").fetchone()[0] == 1
+    assert service.handle(actor, "done").startswith("DRAFT:")
+
+
+def test_resend_survives_restart_and_keeps_page_cursor(tmp_path):
+    path = tmp_path / "resend.db"
+    store = Store(path, "colorado-mesh")
+    service = CommandService(store)
+    post = store.publish(ALICE, "post", "general", "Title", "é" * 200)
+    first = service.handle(ALICE, f"read {post.post_id}")
+    second = service.handle(ALICE, "more")
+    store.close()
+    store = Store(path, "colorado-mesh")
+    try:
+        service = CommandService(store)
+        assert service.handle(ALICE, "resend") == second
+        assert service.handle(ALICE, "resend") == second
+        rest = collect_pages(service, ALICE, service.handle(ALICE, "more"))
+        assert (
+            first.removesuffix("\n[more]") + second.removesuffix("\n[more]") + rest
+            == f"{post.post_id[:12]} Title\n{post.body}"
+        )
+    finally:
+        store.close()
+
+
+def test_resend_cannot_leak_other_senders_or_removed_posts(service):
+    post = service.store.publish(ALICE, "post", "general", "Title", "Removed body")
+    reply = service.handle(ALICE, f"read {post.post_id}")
+    assert service.handle(BOB, "resend").startswith("No recent reply")
+    assert service.handle(ALICE, "resend", request_id="retry") == reply
+    service.store.revise(ALICE, "remove", post.post_id, "Title", "", remove=True)
+    assert service.handle(ALICE, "resend").startswith("No recent reply")
+    assert service.handle(ALICE, "resend", request_id="retry").startswith("No recent reply")
+
+
+def test_resend_retains_native_request_receipt_and_does_not_republish(service):
+    saved = service.handle(ALICE, "post general Hello | World")
+    assert service.handle(ALICE, "resend", request_id="retry") == saved
+    menu = service.handle(ALICE, "help")
+    assert service.handle(ALICE, "resend", request_id="retry") == saved
+    assert service.handle(ALICE, "resend") == menu
+    assert len(service.store.list_posts("general")) == 1
+
+
+@pytest.mark.parametrize("budget", [64, 100, 140, 160, 4096])
+def test_resend_is_discoverable_in_menu_at_all_packet_sizes(service, budget):
+    menu = service.handle(ALICE, "help", max_bytes=budget)
+    assert "resend=" in menu and "3 Write/resume" in menu
+    assert len(menu.encode()) <= budget
+    assert service.handle(ALICE, "resend", max_bytes=budget) == menu
+
+
+def test_resend_cache_is_bounded_expiring_and_respects_byte_limit(service, monkeypatch):
+    monkeypatch.setattr("mesh_bbs.commands.LAST_REPLY_LIMIT", 2)
+    now = [100.0]
+    monkeypatch.setattr("mesh_bbs.commands.time.time", lambda: now[0])
+    for actor in (ALICE, BOB, "lxmf:reader"):
+        service.handle(actor, "help")
+        now[0] += 1
+    assert service.store.db.execute("SELECT count(*) FROM last_replies").fetchone()[0] == 2
+    assert service.handle(ALICE, "resend").startswith("No recent reply")
+    assert service.handle(BOB, "resend", max_bytes=64).startswith("Last reply is too large")
+    assert "News" in service.handle(BOB, "resend")
+    now[0] += 86400
+    assert service.handle(BOB, "resend").startswith("No recent reply")
+
+
 def collect_pages(service: CommandService, actor: str, first_page: str, budget: int = 160) -> str:
     result = []
     page = first_page

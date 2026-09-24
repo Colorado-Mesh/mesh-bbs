@@ -29,7 +29,8 @@ The DM menu is the same on all three messaging protocols: **1 News, 2 Boards,
 3 Write/resume**. Reply with a number. To write, choose a board or create one,
 send a title and text, then send `done` to review and `publish` to save it.
 `menu` returns to the start; **3** resumes your draft. Long posts arrive one page
-at a time when you request them.
+at a time when you request them. If a reply is missing, send **`resend`** to
+repeat it without skipping a page or submitting your text twice.
 
 **News is reserved for automatic imports.** Human posts and replies belong on
 community boards, including when the author has an editor key.

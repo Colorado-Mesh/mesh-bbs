@@ -11,11 +11,17 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from hashlib import sha256
 
 from mesh_bbs.airtime import AirtimeLimiter
 from mesh_bbs.announcements import AnnouncementOutbox
 
 logger = logging.getLogger(__name__)
+
+
+def request_label(message: IncomingMessage) -> str:
+    # Correlate receipt and delivery without logging names, addresses, or DM text.
+    return f"{message.protocol}:{sha256(message.sender.encode()).hexdigest()[:12]}"
 
 
 @dataclass(frozen=True)
@@ -118,9 +124,13 @@ class QueuedRadioAdapter(ABC):
             ):
                 self.dropped += 1
                 self.rate_limited += 1
+                logger.warning(
+                    "Radio request dropped: sender limit peer=%s", request_label(message)
+                )
                 return False
             if not self._slots.acquire(blocking=False):
                 self.dropped += 1
+                logger.warning("Radio request dropped: queue full peer=%s", request_label(message))
                 return False
             self._sender_requests.setdefault(message.sender, deque()).append(now)
             self._sender_pending[message.sender] = pending + 1
@@ -138,6 +148,11 @@ class QueuedRadioAdapter(ABC):
     def _enqueue_reserved(self, message: IncomingMessage) -> None:
         if self._accepting:
             self._queue.put_nowait(message)
+            logger.info(
+                "Radio request queued peer=%s pending=%d",
+                request_label(message),
+                self._queue.qsize(),
+            )
         else:
             self._release(message)
 
@@ -189,8 +204,11 @@ class QueuedRadioAdapter(ABC):
         while True:
             message = await self._queue.get()
             reservation = None
+            started = loop.time()
+            peer = request_label(message)
             try:
                 if self.airtime_limiter is not None:
+                    logger.info("Radio request awaiting airtime peer=%s", peer)
                     reservation = await self.airtime_limiter.acquire(self.transmission_attempts)
                 reply = await self.handler(message)
                 if not reply:
@@ -204,10 +222,24 @@ class QueuedRadioAdapter(ABC):
                 self._last_send = loop.time()
                 await self.send_reply(message, reply)
                 self.acknowledged += 1
+                logger.info(
+                    "Radio reply completed peer=%s bytes=%d elapsed=%.1fs",
+                    peer,
+                    len(reply.encode()),
+                    loop.time() - started,
+                )
+            except DeliveryError as exc:
+                self.failed += 1
+                logger.warning(
+                    "Radio reply unconfirmed peer=%s elapsed=%.1fs: %s",
+                    peer,
+                    loop.time() - started,
+                    exc,
+                )
             except Exception:
                 # Isolate handler/transport failures; the next request can still run.
                 self.failed += 1
-                logger.exception("Radio request failed")
+                logger.exception("Radio request failed peer=%s", peer)
             finally:
                 try:
                     if reservation is not None:

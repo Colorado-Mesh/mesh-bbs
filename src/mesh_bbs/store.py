@@ -113,6 +113,11 @@ CREATE TABLE IF NOT EXISTS command_receipts (
     response TEXT NOT NULL, expires REAL, revision_id TEXT NOT NULL DEFAULT '',
     PRIMARY KEY(actor,operation)
 );
+CREATE TABLE IF NOT EXISTS last_replies (
+    actor TEXT PRIMARY KEY, response TEXT NOT NULL, revision_id TEXT NOT NULL,
+    expires REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS last_replies_expiry ON last_replies(expires);
 """
 
 
@@ -389,6 +394,11 @@ class Store:
             )
             self.db.execute(
                 "DELETE FROM command_receipts WHERE revision_id IN "
+                "(SELECT event_id FROM events WHERE post_id=?)",
+                (post_id,),
+            )
+            self.db.execute(
+                "DELETE FROM last_replies WHERE revision_id IN "
                 "(SELECT event_id FROM events WHERE post_id=?)",
                 (post_id,),
             )

@@ -204,6 +204,8 @@ class MeshCoreAdapter(QueuedRadioAdapter):
         message = parse_meshcore_message(event.payload, self._client.contacts)
         if message is not None:
             self.enqueue(message)
+        else:
+            LOG.warning("MeshCore DM ignored: invalid message or unknown/ambiguous contact")
 
     def _receive_channel(self, event: Any) -> None:
         if (
@@ -254,7 +256,9 @@ class MeshCoreAdapter(QueuedRadioAdapter):
                     text,
                     max_attempts=self.max_attempts,
                     max_flood_attempts=self.max_attempts,
-                    flood_after=self.max_attempts,
+                    # The SDK checks this before sending, with a zero-based attempt
+                    # count. Reserve the final attempt for recovery from a stale path.
+                    flood_after=max(1, self.max_attempts - 1),
                     min_timeout=self.min_interval,
                 )
             finally:

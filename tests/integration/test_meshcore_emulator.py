@@ -60,6 +60,8 @@ class CompanionEmulator:
         self.reject_attempts = 0
         self.disconnect_on_send = False
         self.early_ack = False
+        self.require_flood = False
+        self.flood_route = False
         self._sequence = 0
 
     async def start(self):
@@ -157,6 +159,10 @@ class CompanionEmulator:
         elif command == 10:
             assert payload == b"\x0a"
             await self.frames(self.incoming.popleft() if self.incoming else b"\x0a")
+        elif command == 13:
+            assert payload[1:] == READER_KEY
+            self.flood_route = True
+            await self.frames(b"\x00")
         elif command == 2:
             assert payload[1] == 0
             assert 13 < len(payload) <= 173
@@ -179,9 +185,11 @@ class CompanionEmulator:
                 return
             self._sequence += 1
             ack_code = struct.pack("<I", self._sequence)
-            sent = b"\x06\x00" + ack_code + struct.pack("<I", 20)
+            sent = b"\x06" + bytes([int(self.flood_route)]) + ack_code + struct.pack("<I", 20)
             ack = b"\x82" + ack_code + struct.pack("<I", 5)
-            if self.drop_ack_attempts:
+            if self.require_flood and not self.flood_route:
+                await self.frames(sent)
+            elif self.drop_ack_attempts:
                 self.drop_ack_attempts -= 1
                 await self.frames(sent)
             elif self.early_ack:
@@ -274,6 +282,34 @@ async def draft(radio, adapter):
     created = await exchange(radio, adapter, "@draft new general Foothills meetup")
     assert created.startswith("Draft ")
     return created.split()[1].rstrip(".")
+
+
+async def test_sdk_recovers_stale_route_within_two_attempt_budget(tmp_path):
+    async with connected_bbs(tmp_path) as (radio, adapter, store):
+        radio.require_flood = True
+        response = await exchange(radio, adapter, "help", attempts=2)
+        assert "News" in response
+        assert radio.flood_route
+        assert adapter.acknowledged == 1 and adapter.failed == 0
+        assert radio.outgoing.empty()
+
+
+async def test_sdk_resend_recovers_lost_reply_without_advancing_page(tmp_path):
+    async with connected_bbs(tmp_path) as (radio, adapter, store):
+        post = store.publish(ACTOR, "post", "general", "Pages", "One two three. " * 60)
+        await exchange(radio, adapter, f"read {post.post_id}")
+        radio.drop_ack_attempts = 2
+        lost = await exchange(radio, adapter, "more", attempts=2)
+        assert adapter.failed == 1
+        position = store.db.execute(
+            "SELECT position FROM cursors WHERE actor=?", (ACTOR,)
+        ).fetchone()[0]
+        assert await exchange(radio, adapter, "resend") == lost
+        assert (
+            store.db.execute("SELECT position FROM cursors WHERE actor=?", (ACTOR,)).fetchone()[0]
+            == position
+        )
+        assert adapter.acknowledged == 2
 
 
 async def test_sdk_publish_lost_ack_retry_and_utf8_paged_read(tmp_path):

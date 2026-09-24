@@ -73,6 +73,18 @@ Allow for radio delivery and the host's reply budget. A radio ACK is not a BBS
 publication receipt. The service accepts at most 12 requests per sender per
 minute, and an exhausted airtime budget can delay processing.
 
+Send **`resend`** to repeat the bot's last reply. `again` and `repeat` also work.
+This works in MeshCore, Meshtastic, and LXMF DMs, including while writing a draft.
+It does not advance the page, change your menu, append text, or publish again.
+Use `next` only after receiving the page you were waiting for.
+
+The last reply survives a host restart and is retained for up to 24 hours, with
+a host-wide limit of 4,096 senders. Send from the same address to the same BBS.
+Removed posts cannot be recovered this way. A new successful command replaces
+the saved reply, so ask for `resend` before sending something else. These three
+words are reserved commands even when composing a title or body; include them
+in a longer message if they are part of your post.
+
 For a draft, retrying `publish` is safe. Resending plain body text after a lost
 confirmation can append it twice, particularly on MeshCore, whose companion
 messages have no stable packet ID. For unreliable links, use the explicit
@@ -93,6 +105,7 @@ Send `commands` for the reference, then `more` to page through it.
 | `thread ID` | List a conversation's posts and replies |
 | `news latest` | Open the latest saved newsletter |
 | `more` | Next page of an explicit-command response |
+| `resend` / `again` / `repeat` | Repeat the last DM response without rerunning its command |
 | `post general Title | Text` | Publish a short post immediately |
 | `new general Title` | Create a multipart draft |
 | `add DRAFT 1 Text` | Save numbered part 1 |

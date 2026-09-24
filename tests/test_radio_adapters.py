@@ -249,7 +249,8 @@ def install_meshcore(monkeypatch, radio):
 
 
 @pytest.mark.asyncio
-async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
+async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch, caplog):
+    caplog.set_level("INFO", logger="mesh_bbs.adapters.base")
     radio = FakeMeshCore()
     install_meshcore(monkeypatch, radio)
     adapter = MeshCoreAdapter(help_handler, serial_port="/dev/fake", min_interval=0)
@@ -262,12 +263,17 @@ async def test_meshcore_lifecycle_and_real_api_contract(monkeypatch):
     await adapter.drain()
     assert radio.sent[0][:2] == (KEY, "Send boards to list boards.")
     assert radio.sent[0][2]["max_attempts"] == 2
-    assert radio.sent[0][2]["flood_after"] == 2
+    assert radio.sent[0][2]["flood_after"] == 1
     assert adapter.acknowledged == 1
     radio.ack = False
     radio.subscribers["direct"](SimpleNamespace(payload=meshcore_payload()))
     await adapter.drain()
     assert adapter.failed == 1
+    assert "Radio request queued" in caplog.text
+    assert "Radio reply completed" in caplog.text
+    assert "Radio reply unconfirmed" in caplog.text
+    assert KEY not in caplog.text
+    assert "Send boards to list boards." not in caplog.text
     await adapter.stop()
     assert radio.closed and not radio.fetching and not radio.subscribers
 

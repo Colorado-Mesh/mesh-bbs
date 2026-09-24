@@ -252,6 +252,7 @@ async def test_meshtastic_sdk_publishes_retries_and_reads_through_tcp(
         )
     saved = await radio.command(f"publish {draft}", 105)
     assert saved.startswith("Saved locally"), saved
+    assert await radio.command("resend", 205) == saved
     assert await radio.command(f"publish {draft}", 105) == saved
     posts = store.list_posts("general")
     assert len(posts) == 1

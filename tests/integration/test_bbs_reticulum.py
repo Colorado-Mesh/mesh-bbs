@@ -378,6 +378,7 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         assert dm(f"@part-1 add {draft} 1 Signed LXMF post").startswith("Saved part 1.")
         saved = dm(f"@publish-1 publish {draft}")
         assert saved.startswith("Saved locally as "), saved
+        assert dm("resend") == saved
         assert dm(f"@publish-1 publish {draft}") == saved
         post_id = saved.split()[3].rstrip(".")
         assert dm(f"read {post_id}") == f"{post_id} Radio meetup\nSigned LXMF post"
@@ -390,7 +391,9 @@ def test_three_host_bbs_over_reticulum(tmp_path: Path) -> None:
         assert final[0]["posts"] == final[1]["posts"] == final[2]["posts"]
         assert len(final[0]["posts"]) == 6
         # The same guided conversation creates a new board through real signed LXMF.
-        assert "3 Write/resume" in dm("help")
+        menu = dm("help")
+        assert "3 Write/resume" in menu
+        assert dm("resend") == menu
         assert "general" in dm("3")
         assert "board name" in dm("2")
         assert "title" in dm("hiking")

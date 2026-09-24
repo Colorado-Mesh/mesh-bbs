@@ -246,6 +246,25 @@ apps, or repeater forwarding. Account for that traffic separately. Queue and
 per-sender limits reject excess requests without adding congestion replies.
 Never delete budget state as a way to make a stalled bot send faster.
 
+## Diagnose missing DM replies
+
+A reader's delivery receipt confirms the request reached the companion, not
+that the BBS reply reached the reader. MeshCore normally tries the known route
+first. If that fails, the final attempt resets the stale route and uses flood
+delivery, within the existing two-attempt allowance. It does not add a third
+transmission or change modem settings. Missing ACKs do not prove non-delivery.
+
+Readers can send `resend` to recover the last reply without advancing a page or
+duplicating a write. This uses the normal reply budget and queue limits.
+
+Service logs show `Radio request queued`, `awaiting airtime`, `reply completed`,
+and `reply unconfirmed`, plus queue/sender-limit drops and unusable MeshCore DMs.
+Correlate them using the hashed `peer` label; message text, names, and full
+addresses are not logged. Completion means the transport's delivery criterion
+was met, not that a person read the message. An `awaiting airtime` entry with no
+completion can mean the configured budget is exhausted. A ready service means
+the radio connection is alive; it does not prove end-to-end RF delivery.
+
 ## MeshCore discovery
 
 The BBS sets the companion clock on connection so adverts do not carry a stale

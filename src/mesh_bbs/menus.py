@@ -59,12 +59,13 @@ class Menus:
 
     def _home(self, state: dict[str, Any], budget: int) -> str:
         state.update(view="home", history=[])
-        if budget < 100:
-            return "BBS\n1 News\n2 Boards\n3 Write/resume\nSend a number. menu=start"
-        return (
+        full = (
             "Welcome to Mesh BBS!\n1 News & newsletters\n2 Browse boards\n3 Write/resume a post\n"
-            "Reply with a number.\nnext=more | back | menu=start"
+            "Send a number.\nnext=more | back | menu=start\nresend=last reply"
         )
+        if len(full.encode()) <= budget:
+            return full
+        return "BBS\n1 News\n2 Boards\n3 Write/resume\nmenu=start | resend=repeat"
 
     def _handle(
         self, actor: str, text: str, word: str, budget: int, state: dict[str, Any]

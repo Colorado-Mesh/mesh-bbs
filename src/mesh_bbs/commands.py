@@ -13,6 +13,7 @@ from mesh_bbs.store import Store
 
 HELP = (
     "Send one command per DM. Send more for the next page of any long response.\n"
+    "resend: repeat the last reply without advancing or posting again\n"
     "boards: list boards\nthreads BOARD: newest threads\nread ID: full post\n"
     "thread ID: replies\nnews: latest newsletter\nreply ID TEXT\n"
     "post BOARD TITLE | TEXT\n"
@@ -20,6 +21,10 @@ HELP = (
     "Replace BOARD with a board name, ID with a listed post ID or this host's #number, "
     "and DRAFT with your draft ID."
 )
+
+LAST_REPLY_LIMIT = 4096
+LAST_REPLY_TTL = 86400
+RESEND_COMMANDS = {"resend", "again", "repeat"}
 
 
 def display_text(text: str) -> str:
@@ -91,11 +96,22 @@ class CommandService:
                         if receipt["fingerprint"] != fingerprint:
                             raise BBSError("Request ID already used for another command")
                         return str(receipt["response"])
-                response = self._execute(actor, text, max_bytes)
-                if len(response.encode()) > max_bytes:
-                    raise BBSError("Response exceeds the interface limit")
-                if request_id:
-                    expiry = time.time() + request_ttl_seconds if request_ttl_seconds else None
+                now = time.time()
+                self.store.db.execute("DELETE FROM last_replies WHERE expires<=?", (now,))
+                replay = text.casefold() in RESEND_COMMANDS
+                if replay:
+                    last = self.store.db.execute(
+                        "SELECT response,revision_id FROM last_replies WHERE actor=?", (actor,)
+                    ).fetchone()
+                    revision = last["revision_id"] if last else ""
+                    if last is None:
+                        response = "No recent reply to resend. Send help."
+                    elif len(last["response"].encode()) > max_bytes:
+                        response = "Last reply is too large for this connection. Send help."
+                    else:
+                        response = str(last["response"])
+                else:
+                    response = self._execute(actor, text, max_bytes)
                     reading = text.split(" ", 1)[0].lower() in {
                         "read",
                         "more",
@@ -104,12 +120,27 @@ class CommandService:
                     } or self.menus.reading(actor)
                     cursor = (
                         self.store.db.execute(
-                            "SELECT revision_id FROM cursors WHERE actor=?",
-                            (actor,),
+                            "SELECT revision_id FROM cursors WHERE actor=?", (actor,)
                         ).fetchone()
                         if reading
                         else None
                     )
+                    revision = cursor[0] if cursor else ""
+                if len(response.encode()) > max_bytes:
+                    raise BBSError("Response exceeds the interface limit")
+                if not replay:
+                    self.store.db.execute(
+                        "INSERT OR REPLACE INTO last_replies VALUES (?,?,?,?)",
+                        (actor, response, revision, now + LAST_REPLY_TTL),
+                    )
+                    self.store.db.execute(
+                        "DELETE FROM last_replies WHERE actor IN "
+                        "(SELECT actor FROM last_replies ORDER BY expires DESC, rowid DESC "
+                        "LIMIT -1 OFFSET ?)",
+                        (LAST_REPLY_LIMIT,),
+                    )
+                if request_id:
+                    expiry = time.time() + request_ttl_seconds if request_ttl_seconds else None
                     self.store.db.execute(
                         "INSERT INTO command_receipts VALUES (?,?,?,?,?,?)",
                         (
@@ -118,7 +149,7 @@ class CommandService:
                             fingerprint,
                             response,
                             expiry,
-                            cursor[0] if cursor else "",
+                            revision,
                         ),
                     )
                 return response
