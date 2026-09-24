@@ -23,6 +23,8 @@ Keep documentation and examples consistent with the behavior you change.
 ## Data and identity
 
 - Commit each accepted operation together with its deduplication receipt.
+  MeshCore retry receipts use the full sender key, timestamp, and exact text,
+  with a host-clock 24-hour lifetime. Never deduplicate on text or time alone.
   Preserve permanent post, thread, and parent IDs through every adapter and sync.
   Independent submissions remain distinct even when their text matches.
 - A transport address is a gateway-attested identity unless that transport

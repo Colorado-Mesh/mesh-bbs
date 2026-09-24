@@ -70,7 +70,9 @@ async def serve(config: HostConfig, *, stop: asyncio.Event | None = None) -> Non
                 message.text,
                 request_id=message.message_id,
                 max_bytes=budget,
-                request_ttl_seconds=86400 if message.protocol == "meshtastic" else None,
+                request_ttl_seconds=86400
+                if message.protocol in {"meshcore", "meshtastic"}
+                else None,
             )
         )
 

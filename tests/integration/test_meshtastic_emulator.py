@@ -242,6 +242,7 @@ async def test_meshtastic_sdk_publishes_retries_and_reads_through_tcp(
     match = re.search(r"\b[0-9a-f]{8}\b", first)
     assert match, first
     draft = match[0]
+    await adapter.drain()
     assert await radio.command("new general Trail cleanup", 101) == first
     assert store.db.execute("SELECT count(*) FROM drafts").fetchone()[0] == 1
 
@@ -253,6 +254,7 @@ async def test_meshtastic_sdk_publishes_retries_and_reads_through_tcp(
     saved = await radio.command(f"publish {draft}", 105)
     assert saved.startswith("Saved locally"), saved
     assert await radio.command("resend", 205) == saved
+    await adapter.drain()
     assert await radio.command(f"publish {draft}", 105) == saved
     posts = store.list_posts("general")
     assert len(posts) == 1
@@ -482,6 +484,9 @@ async def test_guided_menu_create_board_and_long_post_over_meshtastic(radio_sess
         now[0] += 12
         response = await radio.command(command, packet)
         assert expected in response, response
+        # This tests a later retry. A duplicate during the outstanding ACK is
+        # coalesced into the already-sent reply instead of queuing another one.
+        await radio_session.adapter.drain()
         assert await radio.command(command, packet) == response
     posts = store.list_posts("hiking")
     assert len(posts) == 1 and posts[0].author == REMOTE_ACTOR

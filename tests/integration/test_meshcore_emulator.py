@@ -63,6 +63,7 @@ class CompanionEmulator:
         self.require_flood = False
         self.flood_route = False
         self._sequence = 0
+        self._incoming_timestamp = 1700000000
 
     async def start(self):
         self.server = await asyncio.start_server(self._accept, "127.0.0.1", 0)
@@ -199,14 +200,17 @@ class CompanionEmulator:
         else:
             raise AssertionError(f"Unexpected companion command: {payload.hex()}")
 
-    async def deliver(self, text):
+    async def deliver(self, text, *, timestamp=None):
         assert len(text.encode("utf-8")) <= 160
         assert len(self.incoming) < 16
+        if timestamp is None:
+            self._incoming_timestamp += 1
+            timestamp = self._incoming_timestamp
         self.incoming.append(
             b"\x10\x08\x00\x00"
             + READER_KEY[:6]
             + b"\xff\x00"
-            + struct.pack("<I", 1700000000)
+            + struct.pack("<I", timestamp)
             + text.encode("utf-8")
         )
         await self.frames(b"\x83", fragmented=True)
@@ -245,9 +249,12 @@ async def connected_bbs(tmp_path: Path):
     async def command(message):
         assert message.protocol == "meshcore"
         assert message.sender == ACTOR
-        assert message.message_id is None
         return service.handle(
-            message.sender, message.text, request_id=message.message_id, max_bytes=160
+            message.sender,
+            message.text,
+            request_id=message.message_id,
+            request_ttl_seconds=86400,
+            max_bytes=160,
         )
 
     radio = CompanionEmulator()
@@ -267,8 +274,8 @@ async def connected_bbs(tmp_path: Path):
             store.close()
 
 
-async def exchange(radio, adapter, text, *, attempts=1):
-    await radio.deliver(text)
+async def exchange(radio, adapter, text, *, attempts=1, timestamp=None):
+    await radio.deliver(text, timestamp=timestamp)
     sent = [await radio.next_reply() for _ in range(attempts)]
     await asyncio.wait_for(adapter.drain(), 2)
     assert [message.attempt for message in sent] == list(range(attempts))
@@ -282,6 +289,22 @@ async def draft(radio, adapter):
     created = await exchange(radio, adapter, "@draft new general Foothills meetup")
     assert created.startswith("Draft ")
     return created.split()[1].rstrip(".")
+
+
+async def test_sdk_five_incoming_retries_append_only_one_draft_part(tmp_path):
+    async with connected_bbs(tmp_path) as (radio, adapter, store):
+        post = store.publish(ACTOR, "root", "general", "Testing", "Try replying")
+        await exchange(radio, adapter, f"read #{store.post_number(post.post_id)}")
+        await exchange(radio, adapter, "reply")
+        responses = [
+            await exchange(radio, adapter, "You passed the test", timestamp=1790274800)
+            for _ in range(5)
+        ]
+        assert all(response == responses[0] for response in responses)
+        assert responses[0].startswith("Part 1 saved.")
+        preview = await exchange(radio, adapter, "done")
+        assert preview.count("You passed the test") == 1
+        assert store.db.execute("SELECT count(*) FROM draft_parts").fetchone()[0] == 1
 
 
 async def test_sdk_recovers_stale_route_within_two_attempt_budget(tmp_path):

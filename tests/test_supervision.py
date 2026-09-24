@@ -299,6 +299,71 @@ async def test_runtime_keeps_web_and_feeds_running_while_radio_is_missing(
     assert budgets[0]._closed
 
 
+async def test_runtime_commits_meshcore_retry_receipt_with_bounded_lifetime(tmp_path, monkeypatch):
+    import sqlite3
+    import time
+
+    from mesh_bbs import runtime
+    from mesh_bbs.adapters.meshcore import parse_meshcore_message
+    from mesh_bbs.config import HostConfig, RadioConfig
+    from mesh_bbs.web import ReadOnlyWebServer
+
+    ready = asyncio.Event()
+    connected = []
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "add_signal_handler", lambda *_args: None)
+    monkeypatch.setattr(
+        "mesh_bbs.web.ReadOnlyWebServer",
+        lambda views, host, port, **kwargs: ReadOnlyWebServer(views, host, 0, **kwargs),
+    )
+
+    class Companion(Radio):
+        def __init__(self, handler, **options):
+            super().__init__([], "companion")
+            self.handler = handler
+            connected.append(self)
+
+        async def start(self):
+            await super().start()
+            ready.set()
+
+    monkeypatch.setattr("mesh_bbs.adapters.meshcore.MeshCoreAdapter", Companion)
+    config = HostConfig(
+        "Retry test",
+        "test",
+        tmp_path,
+        meshcore=RadioConfig(enabled=True, serial_port="/dev/fake"),
+    )
+    stop = asyncio.Event()
+    task = asyncio.create_task(runtime.serve(config, stop=stop))
+    try:
+        await asyncio.wait_for(ready.wait(), 10)
+        key = "11" * 32
+        message = parse_meshcore_message(
+            dict(
+                type="PRIV",
+                txt_type=0,
+                pubkey_prefix=key[:12],
+                sender_timestamp=100,
+                text="post general Test | One post",
+            ),
+            {key: {"public_key": key}},
+        )
+        before = time.time()
+        reply = await connected[0].handler(message)
+        assert await connected[0].handler(message) == reply
+        with sqlite3.connect(f"file:{tmp_path / 'bbs.sqlite3'}?mode=ro", uri=True) as db:
+            assert db.execute("SELECT count(*) FROM posts").fetchone()[0] == 1
+            operation, expiry = db.execute(
+                "SELECT operation,expires FROM command_receipts"
+            ).fetchone()
+            assert operation == message.message_id
+            assert before + 86400 <= expiry <= time.time() + 86400
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, 10)
+
+
 @pytest.mark.parametrize("fails", [False, True])
 async def test_runtime_manual_announce_keeps_service_running_and_limits_repeats(
     tmp_path, monkeypatch, caplog, fails

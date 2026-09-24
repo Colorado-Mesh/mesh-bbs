@@ -1,8 +1,9 @@
 """MeshCore companion-radio DMs, using meshcore 2.3.14.
 
-MeshCore exposes a six-byte sender prefix, not a message ID. Resolve the
-prefix against exactly one full contact key. Names and channel traffic cannot
-identify authors. Opt-in channel notices direct readers to DMs; no Room Server is used.
+MeshCore exposes a sender prefix, timestamp, and text, not a native message ID.
+Resolve the prefix against exactly one full key and fingerprint the unchanged
+retry fields. Names and channel traffic cannot identify authors. Opt-in channel
+notices direct readers to DMs; no Room Server is used.
 
 API: https://github.com/meshcore-dev/meshcore_py/tree/v2.3.14
 160-byte limit: MeshCore src/helpers/BaseChatMesh.h and composeMsgPacket().
@@ -63,6 +64,9 @@ def parse_meshcore_message(
         return None
     text = payload.get("text")
     prefix = payload.get("pubkey_prefix")
+    timestamp = payload.get("sender_timestamp")
+    if type(timestamp) is not int or not 0 <= timestamp <= 0xFFFFFFFF:
+        return None
     if not isinstance(text, str) or not text or "\x00" in text:
         return None
     if len(text.encode("utf-8")) > 160 or not isinstance(prefix, str):
@@ -82,7 +86,13 @@ def parse_meshcore_message(
             keys.add(key)
     if len(keys) != 1:
         return None
-    return IncomingMessage("meshcore", "meshcore:" + keys.pop(), text)
+    key = keys.pop()
+    # Firmware omits the retry counter from companion receive events, but keeps
+    # these fields unchanged. Text alone or timestamp alone is not an identity.
+    fingerprint = sha256(
+        bytes.fromhex(key) + timestamp.to_bytes(4, "little") + text.encode("utf-8")
+    ).hexdigest()
+    return IncomingMessage("meshcore", "meshcore:" + key, text, "meshcore-v1:" + fingerprint)
 
 
 class MeshCoreAdapter(QueuedRadioAdapter):

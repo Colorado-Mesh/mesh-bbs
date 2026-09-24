@@ -69,8 +69,20 @@ draft publication provide application-level retries on every transport.
 Command receipts return the previous response instead of advancing a cursor or
 appending text again. Explicit `@operation-id` receipts persist. Native
 Meshtastic packet IDs have a 24-hour lifetime because those finite IDs can be
-reused. MeshCore companion messages provide no stable native request ID; text
-equality is not treated as one.
+reused. MeshCore has no native message ID: the adapter fingerprints the resolved
+full sender key, uint32 sender timestamp, and exact UTF-8 text together. Firmware
+forwards those unchanged across attempts; route and signal metadata are excluded.
+The resulting receipts expire 24 hours after processing, using the host clock.
+They commit with the command and survive reconnects and host restarts. Timestamp
+alone and text alone are not retry identifiers. Identical text from the same
+sender with the same timestamp is indistinguishable from a retry; use a new
+timestamp or explicit operation ID for a separate submission.
+
+Radio retries already queued or being answered are coalesced before reserving
+another queue slot or sender allowance. A later retry receives the stored response
+under the normal airtime budget, without repeating a write or advancing a cursor.
+See the pinned firmware's [receive handling](https://github.com/meshcore-dev/MeshCore/blob/d929643/src/helpers/BaseChatMesh.cpp)
+and [companion forwarding](https://github.com/meshcore-dev/MeshCore/blob/d929643/examples/companion_radio/MyMesh.cpp).
 
 The short-post command and multipart publication use the same policy and
 transaction boundaries. A radio ACK is not a commit receipt. “Saved locally”

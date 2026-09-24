@@ -257,6 +257,12 @@ transmission or change modem settings. Missing ACKs do not prove non-delivery.
 Readers can send `resend` to recover the last reply without advancing a page or
 duplicating a write. This uses the normal reply budget and queue limits.
 
+MeshCore retry fingerprints combine the full sender key, original timestamp,
+and exact text. Receipts survive restart for 24 hours; an uncertain ACK never
+causes the same request to append another draft part. Retries received while the
+original is queued or awaiting delivery are coalesced and logged as `Radio retry
+coalesced`. Later retries replay the saved response and still consume reply budget.
+
 Service logs show `Radio request queued`, `awaiting airtime`, `reply completed`,
 and `reply unconfirmed`, plus queue/sender-limit drops and unusable MeshCore DMs.
 Correlate them using the hashed `peer` label; message text, names, and full

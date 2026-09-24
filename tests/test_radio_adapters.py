@@ -48,9 +48,10 @@ def test_incoming_message_is_immutable():
         message.text = "publish stolen"  # type: ignore[misc]
 
 
-def test_meshcore_resolves_full_key_and_has_no_native_message_id():
+def test_meshcore_resolves_full_key_and_fingerprints_retry_fields():
     message = parse_meshcore_message(meshcore_payload(), CONTACTS)
-    assert message == IncomingMessage("meshcore", f"meshcore:{KEY}", "help")
+    assert message.sender == f"meshcore:{KEY}" and message.text == "help"
+    assert message.message_id.startswith("meshcore-v1:")
     assert parse_meshcore_message(meshcore_payload(), {}) is None
     other_key = KEY[:12] + "02" * 26
     colliding = CONTACTS | {other_key: {"public_key": other_key}}
@@ -66,6 +67,12 @@ def test_meshcore_resolves_full_key_and_has_no_native_message_id():
         {"pubkey_prefix": "g" * 12},
         {"text": "x\x00publish"},
         {"text": "é" * 81},
+        {"sender_timestamp": None},
+        {"sender_timestamp": True},
+        {"sender_timestamp": -1},
+        {"sender_timestamp": 2**32},
+        {"sender_timestamp": "1700000000"},
+        {"sender_timestamp": 1.5},
     ],
 )
 def test_meshcore_rejects_unusable_events(change):
@@ -74,10 +81,22 @@ def test_meshcore_rejects_unusable_events(change):
     assert parse_meshcore_message(payload, CONTACTS) is None
 
 
-def test_meshcore_byte_limit_and_retry_timestamp_are_not_an_operation_id():
+def test_meshcore_retry_key_keeps_full_text_and_ignores_route_metadata():
     payload = meshcore_payload("é" * 80)
-    assert parse_meshcore_message(payload, CONTACTS).text == "é" * 80
-    assert parse_meshcore_message(payload, CONTACTS).message_id is None
+    original = parse_meshcore_message(payload, CONTACTS)
+    assert original.text == "é" * 80
+    assert parse_meshcore_message(payload | {"path_len": 7, "SNR": -8}, CONTACTS) == original
+    for changes in ({"sender_timestamp": 1700000001}, {"text": "é" * 79}):
+        assert parse_meshcore_message(payload | changes, CONTACTS).message_id != original.message_id
+    other = "bbbbccccdddd" + "02" * 26
+    assert (
+        parse_meshcore_message(
+            payload | {"pubkey_prefix": other[:12]}, {other: {"public_key": other}}
+        ).message_id
+        != original.message_id
+    )
+    assert parse_meshcore_message(payload | {"sender_timestamp": 0}, CONTACTS) is not None
+    assert parse_meshcore_message(payload | {"sender_timestamp": 0xFFFFFFFF}, CONTACTS) is not None
 
 
 def test_meshtastic_identifies_address_not_display_name_and_preserves_native_id():
@@ -123,6 +142,64 @@ class MemoryRadio(QueuedRadioAdapter):
     async def send_reply(self, message, text):
         self.sent.append((message, text))
         self.send_times.append(asyncio.get_running_loop().time())
+
+
+@pytest.mark.asyncio
+async def test_retry_burst_coalesces_before_queue_and_rate_limits():
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def blocked(message):
+        entered.set()
+        await release.wait()
+        return "Saved once"
+
+    radio = MemoryRadio(blocked, queue_size=2, min_interval=0)
+    message = IncomingMessage("meshcore", "alice", "body", "same-request")
+    radio._start_worker()
+    try:
+        assert radio.enqueue(message)
+        await entered.wait()
+        for _ in range(5):
+            assert not radio.enqueue_threadsafe(asyncio.get_running_loop(), message)
+        assert radio.coalesced == 5 and radio.dropped == 0 and radio.rate_limited == 0
+        assert len(radio._sender_requests["alice"]) == 1
+        assert radio.enqueue(IncomingMessage("meshcore", "bob", "body", "same-request"))
+        release.set()
+        await radio.drain()
+        assert len(radio.sent) == 2
+        # A later retry can recover a missed response from the durable receipt.
+        assert radio.enqueue(message)
+        await radio.drain()
+        assert len(radio.sent) == 3
+    finally:
+        release.set()
+        await radio._stop_worker()
+    assert not radio._pending_requests
+
+
+@pytest.mark.asyncio
+async def test_cancelled_retry_releases_dedup_reservation():
+    entered = asyncio.Event()
+
+    async def blocked(message):
+        entered.set()
+        await asyncio.Event().wait()
+
+    radio = MemoryRadio(blocked, queue_size=1, min_interval=0)
+    message = IncomingMessage("meshcore", "alice", "body", "request")
+    radio._start_worker()
+    radio.enqueue(message)
+    await entered.wait()
+    await radio._stop_worker()
+    assert not radio._pending_requests and not radio._sender_pending
+    radio.handler = help_handler
+    radio._start_worker()
+    try:
+        assert radio.enqueue(message)
+        await radio.drain()
+        assert len(radio.sent) == 1
+    finally:
+        await radio._stop_worker()
 
 
 @pytest.mark.asyncio

@@ -76,6 +76,7 @@ class QueuedRadioAdapter(ABC):
         self._request_clock = request_clock
         self._admission_lock = threading.Lock()
         self._sender_pending: dict[str, int] = {}
+        self._pending_requests: set[tuple[str, str]] = set()
         self._sender_requests: dict[str, deque[float]] = {}
         self._queue: asyncio.Queue[IncomingMessage] = asyncio.Queue(queue_size)
         self._slots = threading.BoundedSemaphore(queue_size)
@@ -84,6 +85,7 @@ class QueuedRadioAdapter(ABC):
         self._last_send = -math.inf
         self.dropped = 0
         self.rate_limited = 0
+        self.coalesced = 0
         self.failed = 0
         self.acknowledged = 0
 
@@ -108,6 +110,13 @@ class QueuedRadioAdapter(ABC):
     def _reserve(self, message: IncomingMessage) -> bool:
         with self._admission_lock:
             if not self._accepting:
+                return False
+            if (
+                message.message_id is not None
+                and (message.sender, message.message_id) in self._pending_requests
+            ):
+                self.coalesced += 1
+                logger.info("Radio retry coalesced peer=%s", request_label(message))
                 return False
             now = self._request_clock()
             for sender, recent in list(self._sender_requests.items()):
@@ -134,10 +143,14 @@ class QueuedRadioAdapter(ABC):
                 return False
             self._sender_requests.setdefault(message.sender, deque()).append(now)
             self._sender_pending[message.sender] = pending + 1
+            if message.message_id is not None:
+                self._pending_requests.add((message.sender, message.message_id))
             return True
 
     def _release(self, message: IncomingMessage) -> None:
         with self._admission_lock:
+            if message.message_id is not None:
+                self._pending_requests.discard((message.sender, message.message_id))
             pending = self._sender_pending[message.sender] - 1
             if pending:
                 self._sender_pending[message.sender] = pending

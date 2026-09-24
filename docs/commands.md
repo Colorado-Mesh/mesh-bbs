@@ -85,11 +85,16 @@ the saved reply, so ask for `resend` before sending something else. These three
 words are reserved commands even when composing a title or body; include them
 in a longer message if they are part of your post.
 
-For a draft, retrying `publish` is safe. Resending plain body text after a lost
-confirmation can append it twice, particularly on MeshCore, whose companion
-messages have no stable packet ID. For unreliable links, use the explicit
-operation IDs and numbered parts below. Do not interpret identical text as a
-safe retry identifier.
+For a draft, retrying `publish` is safe. Automatic MeshCore retries with the same
+sender, timestamp, and exact text are deduplicated for 24 hours, including across
+host restarts. Sending the text again manually with a new timestamp is a new
+message and can append it twice. Use `resend` to recover the bot's confirmation.
+For scripts or clients that change timestamps when retrying, use the explicit
+operation IDs and numbered parts below.
+
+Two identical MeshCore messages from one sender in the same timestamp second
+look like retries. To intentionally submit both, use different timestamps or
+different explicit operation IDs. Different text in the same second is separate.
 
 ## Explicit commands
 
@@ -138,7 +143,8 @@ post. “Saved locally” does not promise that another host has synced yet.
 Give each page request its own ID too: `@page-1 read ID`, then `@page-2 more`.
 Repeating a request with its original ID returns the same page rather than
 advancing again. Native Meshtastic/LXMF retransmissions also have request
-receipts; a manual resend may be a new transport operation.
+receipts. MeshCore retry fingerprints also preserve page position; a manually
+resent command with a new timestamp is a new operation.
 
 ### Multipart example
 
